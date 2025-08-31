@@ -1,0 +1,66 @@
+name: appyoloikan
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI & Icons
+  cupertino_icons: ^1.0.8
+  
+  # State Management
+  get: ^4.6.6
+  provider: ^6.0.5
+  get_it: ^7.7.0
+  
+  # Camera & Image Processing
+  camera: ^0.10.5+9
+  image: ^4.2.0
+  image_picker: ^1.0.7
+  
+  # ML & AI
+  tflite_flutter: ^0.11.0
+  
+  # Permissions
+  permission_handler: ^11.3.1
+  
+  # Storage & File Management
+  path_provider: ^2.1.2
+  path: ^1.8.3
+  shared_preferences: ^2.2.2
+  
+  # UI Enhancements & Animations
+  flutter_speed_dial: ^7.0.0
+  animated_text_kit: ^4.2.2
+  flutter_staggered_animations: ^1.1.1
+  lottie: ^3.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - lib/assets/models/best.tflite
+    - lib/assets/models/labels.json
+    - lib/assets/images/
+    - lib/assets/animations/
+  
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: lib/assets/fonts/Poppins-Regular.ttf
+        - asset: lib/assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: lib/assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: lib/assets/fonts/Poppins-Bold.ttf
+          weight: 700
