@@ -6,6 +6,7 @@ import 'routes/app_routes.dart';
 import 'utils/app_colors.dart';
 import 'controllers/fish_controller.dart';
 import 'controllers/camera_controller.dart';
+import 'controllers/live_detection_controller.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -29,7 +30,7 @@ void main() async {
   try {
     cameras = await availableCameras();
   } catch (e) {
-    // Use logging framework in production
+    print('Error initializing cameras: $e');
   }
   
   runApp(const MyApp());
@@ -179,6 +180,7 @@ class MyApp extends StatelessWidget {
       initialBinding: BindingsBuilder(() {
         Get.put(FishController(), permanent: true);
         Get.put(CameraControllerX(), permanent: true);
+        Get.put(LiveDetectionController(), permanent: true);
       }),
     );
   }

@@ -9,6 +9,7 @@ class CameraControllerX extends GetxController {
   var isFlashOn = false.obs;
   var selectedCameraIndex = 0.obs;
   var isRearCamera = true.obs;
+  var isDisposed = false.obs;
 
   @override
   void onInit() {
@@ -17,28 +18,43 @@ class CameraControllerX extends GetxController {
   }
 
   Future<void> initializeCamera() async {
-    if (cameras.isEmpty) {
-      print('No cameras available');
+    if (cameras.isEmpty || isDisposed.value) {
+      print('No cameras available or controller disposed');
       return;
     }
 
     try {
+      await stopCamera();
+      
       cameraController = CameraController(
         cameras[selectedCameraIndex.value],
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
+        imageFormatGroup: Platform.isAndroid 
+            ? ImageFormatGroup.yuv420 
+            : ImageFormatGroup.bgra8888,
       );
 
       await cameraController!.initialize();
-      isCameraInitialized.value = true;
+      
+      if (!isDisposed.value) {
+        isCameraInitialized.value = true;
+        
+        await cameraController!.setFlashMode(FlashMode.off);
+        isFlashOn.value = false;
+        
+        print('Camera initialized successfully');
+      }
     } catch (e) {
       print('Camera initialization error: $e');
       isCameraInitialized.value = false;
+      cameraController?.dispose();
+      cameraController = null;
     }
   }
 
   Future<File?> takePicture() async {
-    if (!isCameraInitialized.value || cameraController == null) {
+    if (!isCameraInitialized.value || cameraController == null || isDisposed.value) {
       return null;
     }
 
@@ -52,7 +68,7 @@ class CameraControllerX extends GetxController {
   }
 
   Future<void> toggleFlash() async {
-    if (!isCameraInitialized.value || cameraController == null) {
+    if (!isCameraInitialized.value || cameraController == null || isDisposed.value) {
       return;
     }
 
@@ -63,19 +79,22 @@ class CameraControllerX extends GetxController {
       );
     } catch (e) {
       print('Error toggling flash: $e');
+      isFlashOn.value = !isFlashOn.value;
     }
   }
 
   Future<void> switchCamera() async {
-    if (cameras.length < 2) {
+    if (cameras.length < 2 || isDisposed.value) {
       return;
     }
 
     try {
+      await stopCamera();
+      
       selectedCameraIndex.value = selectedCameraIndex.value == 0 ? 1 : 0;
       isRearCamera.value = !isRearCamera.value;
       
-      await cameraController?.dispose();
+      await Future.delayed(Duration(milliseconds: 100));
       await initializeCamera();
     } catch (e) {
       print('Error switching camera: $e');
@@ -83,21 +102,33 @@ class CameraControllerX extends GetxController {
   }
 
   Future<void> stopCamera() async {
-    if (cameraController != null) {
-      await cameraController!.dispose();
+    try {
+      if (cameraController != null) {
+        if (cameraController!.value.isStreamingImages) {
+          await cameraController!.stopImageStream();
+        }
+        
+        await cameraController!.dispose();
+        cameraController = null;
+      }
+      
       isCameraInitialized.value = false;
+      isFlashOn.value = false;
+    } catch (e) {
+      print('Error stopping camera: $e');
     }
   }
 
   Future<void> resumeCamera() async {
-    if (!isCameraInitialized.value) {
+    if (!isCameraInitialized.value && !isDisposed.value) {
       await initializeCamera();
     }
   }
 
   @override
   void onClose() {
-    cameraController?.dispose();
+    isDisposed.value = true;
+    stopCamera();
     super.onClose();
   }
 }

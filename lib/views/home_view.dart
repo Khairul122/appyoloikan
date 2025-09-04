@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import '../controllers/fish_controller.dart';
+import '../routes/app_routes.dart';
 import '../views/camera_view.dart';
 import '../views/result_view.dart';
 import '../utils/app_colors.dart';
@@ -26,6 +27,9 @@ class HomeView extends StatelessWidget {
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
+                case 'live_detection':
+                  _navigateToLiveDetection();
+                  break;
                 case 'clear_all':
                   _showClearAllDialog(context);
                   break;
@@ -35,6 +39,16 @@ class HomeView extends StatelessWidget {
               }
             },
             itemBuilder: (BuildContext context) => [
+              PopupMenuItem(
+                value: 'live_detection',
+                child: Row(
+                  children: [
+                    Icon(Icons.video_camera_front, color: Colors.green),
+                    SizedBox(width: 8),
+                    Text('Live Detection'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'clear_all',
                 child: Row(
@@ -199,10 +213,17 @@ class HomeView extends StatelessWidget {
           ),
           SizedBox(height: 16),
           _buildFeatureCard(
+            icon: Icons.video_camera_front,
+            title: 'Live Detection',
+            description: 'Deteksi ikan secara real-time dengan bounding box',
+            color: Colors.purple,
+          ),
+          SizedBox(height: 16),
+          _buildFeatureCard(
             icon: Icons.analytics,
             title: 'Hasil Akurat',
             description: 'Mendapatkan prediksi jenis ikan dengan tingkat akurasi tinggi',
-            color: Colors.purple,
+            color: Colors.blue,
           ),
           SizedBox(height: 40),
           _buildRecentImagesPreview(),
@@ -376,6 +397,14 @@ class HomeView extends StatelessWidget {
             labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
             onTap: () => _navigateToCamera(),
           ),
+          SpeedDialChild(
+            child: Icon(Icons.video_camera_front, color: Colors.white),
+            backgroundColor: Colors.red[600],
+            foregroundColor: Colors.white,
+            label: 'Live Detection',
+            labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
+            onTap: () => _navigateToLiveDetection(),
+          ),
         ],
       );
     });
@@ -387,6 +416,10 @@ class HomeView extends StatelessWidget {
 
   void _navigateToCamera() {
     Get.to(() => CameraView());
+  }
+
+  void _navigateToLiveDetection() {
+    Get.toNamed(AppRoutes.liveDetection);
   }
 
   void _showRecentImages(BuildContext context) {

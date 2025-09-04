@@ -3,12 +3,14 @@ import '../views/splash_screen.dart';
 import '../views/home_view.dart';
 import '../views/camera_view.dart';
 import '../views/result_view.dart';
+import '../views/live_detection_view.dart';
 
 class AppRoutes {
   static const String splash = '/splash';
   static const String home = '/home';
   static const String camera = '/camera';
   static const String result = '/result';
+  static const String liveDetection = '/live-detection';
   
   static final routes = [
     GetPage(
@@ -32,6 +34,12 @@ class AppRoutes {
     GetPage(
       name: result,
       page: () => ResultView(),
+      transition: Transition.rightToLeft,
+      transitionDuration: Duration(milliseconds: 300),
+    ),
+    GetPage(
+      name: liveDetection,
+      page: () => LiveDetectionView(),
       transition: Transition.rightToLeft,
       transitionDuration: Duration(milliseconds: 300),
     ),

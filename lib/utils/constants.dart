@@ -3,9 +3,8 @@ class AppConstants {
   static const String appVersion = '1.0.0';
   static const String appDescription = 'Klasifikasi Jenis Ikan dengan YOLOv11';
   
-  // Model paths - path yang benar tanpa 'lib/'
   static const String modelPath = 'lib/assets/models/best.tflite';
-  static const String labelsPath = 'lib/assets/models/labels.json';
+  static const String labelsPath = 'lib/assets/models/labels.txt';
   static const int inputSize = 640;
   static const double confidenceThreshold = 0.25;
   static const int maxResults = 5;
@@ -30,12 +29,12 @@ class AppConstants {
   static const String keyModelLoaded = 'model_loaded';
   static const String keyLastModelUpdate = 'last_model_update';
   
-  // Asset paths yang benar
-  static const String logoPath = 'lib/assets/images/logo.png';
-  static const String fishIconPath = 'lib/assets/images/fish_icon.png';
-  static const String splashBgPath = 'lib/assets/images/splash_bg.png';
-  static const String loadingAnimationPath = 'lib/assets/animations/loading.json';
-  static const String loadingDotsPath = 'lib/assets/animations/loading_dots.json';
+  // Fixed asset paths - remove 'lib/' prefix
+  static const String logoPath = 'assets/images/logo.png';
+  static const String fishIconPath = 'assets/images/fish_icon.png';
+  static const String splashBgPath = 'assets/images/splash_bg.png';
+  static const String loadingAnimationPath = 'assets/animations/loading.json';
+  static const String loadingDotsPath = 'assets/animations/loading_dots.json';
   
   static const String errorModelNotLoaded = 'Model belum dimuat';
   static const String errorImageNotFound = 'Gambar tidak ditemukan';
