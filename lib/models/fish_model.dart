@@ -1,3 +1,5 @@
+import '../utils/constants.dart';
+
 class FishModel {
   final String name;
   final double confidence;
@@ -13,7 +15,7 @@ class FishModel {
   
   String get confidenceLevel {
     if (confidence >= 0.7) return 'Tinggi';
-    if (confidence >= 0.4) return 'Sedang';
+    if (confidence >= AppConstants.confidenceThreshold) return 'Sedang';
     return 'Rendah';
   }
 

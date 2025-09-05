@@ -139,9 +139,13 @@ class SplashController extends GetxController with GetSingleTickerProviderStateM
           AppConstants.keyLastModelUpdate, 
           DateTime.now().toIso8601String(),
         );
+        loadingText.value = AppConstants.successModelLoaded;
+      } else {
+        loadingText.value = AppConstants.errorModelNotLoaded;
       }
     } catch (e) {
       print('Error loading ML model: $e');
+      loadingText.value = AppConstants.errorModelNotLoaded;
     }
   }
   

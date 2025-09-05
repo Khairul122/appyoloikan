@@ -2,8 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/fish_controller.dart';
-import '../models/prediction_result.dart';
-import '../utils/app_colors.dart';
+import '../utils/constants.dart';
 
 class ResultView extends StatelessWidget {
   final FishController fishController = Get.find<FishController>();
@@ -11,58 +10,68 @@ class ResultView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Hasil Prediksi'),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back),
-          onPressed: () => fishController.clearCurrentPrediction(),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _retryPrediction,
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              switch (value) {
-                case 'delete':
-                  _confirmDeleteImage(context);
-                  break;
-                case 'share':
-                  _shareResult();
-                  break;
-              }
-            },
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem(
-                value: 'share',
-                child: Row(
-                  children: [
-                    Icon(Icons.share, color: Colors.blue),
-                    SizedBox(width: 8),
-                    Text('Bagikan'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Hapus'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(),
       body: Obx(() => _buildBody()),
       bottomNavigationBar: _buildBottomActions(),
     );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: Text('Hasil Prediksi'),
+      backgroundColor: Colors.blue[600],
+      foregroundColor: Colors.white,
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back),
+        onPressed: () => fishController.clearCurrentPrediction(),
+      ),
+      actions: [
+        IconButton(
+          icon: Icon(Icons.refresh),
+          onPressed: _retryPrediction,
+        ),
+        _buildPopupMenu(),
+      ],
+    );
+  }
+
+  Widget _buildPopupMenu() {
+    return PopupMenuButton<String>(
+      onSelected: _handleMenuSelection,
+      itemBuilder: (BuildContext context) => [
+        PopupMenuItem(
+          value: 'share',
+          child: Row(
+            children: [
+              Icon(Icons.share, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Bagikan'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(Icons.delete, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Hapus'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _handleMenuSelection(String value) {
+    switch (value) {
+      case 'delete':
+        _confirmDeleteImage(Get.context!);
+        break;
+      case 'share':
+        _shareResult();
+        break;
+    }
   }
 
   Widget _buildBody() {
@@ -73,21 +82,27 @@ class ResultView extends StatelessWidget {
       );
     }
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildImageSection(currentImage),
-          _buildPredictionSection(),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildImageSection(currentImage, constraints),
+              _buildPredictionSection(),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildImageSection(File imageFile) {
+  Widget _buildImageSection(File imageFile, BoxConstraints constraints) {
+    final imageHeight = constraints.maxHeight * 0.4;
+    
     return Container(
       width: double.infinity,
-      height: 300,
+      height: imageHeight.clamp(200.0, 400.0),
       color: Colors.grey[100],
       child: Stack(
         children: [
@@ -96,30 +111,30 @@ class ResultView extends StatelessWidget {
               imageFile,
               fit: BoxFit.contain,
               width: double.infinity,
-              height: 300,
+              height: imageHeight,
             ),
           ),
-          if (fishController.isPredicting.value)
-            Container(
-              color: Colors.black.withOpacity(0.5),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 16),
-                    Text(
-                      'Menganalisis gambar...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          if (fishController.isPredicting.value) _buildLoadingOverlay(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingOverlay() {
+    return Container(
+      color: Colors.black.withOpacity(0.5),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'Menganalisis gambar...',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -139,24 +154,26 @@ class ResultView extends StatelessWidget {
             ),
           ),
           SizedBox(height: 16),
-          Obx(() {
-            if (fishController.isPredicting.value) {
-              return _buildLoadingResults();
-            }
-
-            if (fishController.errorMessage.value.isNotEmpty) {
-              return _buildErrorResults();
-            }
-
-            if (fishController.predictionResults.isEmpty) {
-              return _buildNoResults();
-            }
-
-            return _buildPredictionResults();
-          }),
+          Obx(() => _buildPredictionContent()),
         ],
       ),
     );
+  }
+
+  Widget _buildPredictionContent() {
+    if (fishController.isPredicting.value) {
+      return _buildLoadingResults();
+    }
+
+    if (fishController.errorMessage.value.isNotEmpty) {
+      return _buildErrorResults();
+    }
+
+    if (fishController.predictionResults.isEmpty) {
+      return _buildNoResults();
+    }
+
+    return _buildPredictionResults();
   }
 
   Widget _buildLoadingResults() {
@@ -169,10 +186,7 @@ class ResultView extends StatelessWidget {
           SizedBox(height: 16),
           Text(
             'Sedang menganalisis...',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -190,11 +204,7 @@ class ResultView extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 48,
-            color: Colors.red[400],
-          ),
+          Icon(Icons.error_outline, size: 48, color: Colors.red[400]),
           SizedBox(height: 12),
           Text(
             'Gagal Menganalisis',
@@ -208,9 +218,7 @@ class ResultView extends StatelessWidget {
           Text(
             fishController.errorMessage.value,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.red[600],
-            ),
+            style: TextStyle(color: Colors.red[600]),
           ),
           SizedBox(height: 16),
           ElevatedButton(
@@ -237,11 +245,7 @@ class ResultView extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.search_off,
-            size: 48,
-            color: Colors.orange[400],
-          ),
+          Icon(Icons.search_off, size: 48, color: Colors.orange[400]),
           SizedBox(height: 12),
           Text(
             'Tidak Ada Hasil',
@@ -255,9 +259,7 @@ class ResultView extends StatelessWidget {
           Text(
             'Tidak dapat mengidentifikasi jenis ikan dari gambar ini',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.orange[600],
-            ),
+            style: TextStyle(color: Colors.orange[600]),
           ),
           SizedBox(height: 16),
           ElevatedButton(
@@ -275,16 +277,18 @@ class ResultView extends StatelessWidget {
 
   Widget _buildPredictionResults() {
     return Column(
-      children: fishController.predictionResults.map((result) {
-        return _buildResultCard(result);
+      children: fishController.predictionResults.asMap().entries.map((entry) {
+        final index = entry.key;
+        final result = entry.value;
+        return _buildResultCard(result, index == 0);
       }).toList(),
     );
   }
 
-  Widget _buildResultCard(PredictionResult result) {
-    final isTopResult = fishController.predictionResults.first == result;
-    final confidenceColor = AppColors.getConfidenceColor(result.confidence);
-    final confidenceBackgroundColor = AppColors.getConfidenceBackgroundColor(result.confidence);
+  Widget _buildResultCard(dynamic result, bool isTopResult) {
+    final confidence = result.confidence as double;
+    final confidenceColor = _getConfidenceColor(confidence);
+    final confidenceBackgroundColor = _getConfidenceBackgroundColor(confidence);
 
     return Container(
       width: double.infinity,
@@ -308,82 +312,95 @@ class ResultView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              if (isTopResult)
-                Icon(
-                  Icons.star,
-                  color: confidenceColor,
-                  size: 20,
-                ),
-              if (isTopResult) SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  result.displayName,
-                  style: TextStyle(
-                    fontSize: isTopResult ? 20 : 16,
-                    fontWeight: isTopResult ? FontWeight.bold : FontWeight.w600,
-                    color: Colors.grey[800],
-                  ),
-                ),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: confidenceColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  result.confidencePercentage,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          _buildResultHeader(result, isTopResult, confidenceColor),
           SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                Icons.analytics_outlined,
-                size: 16,
-                color: Colors.grey[600],
-              ),
-              SizedBox(width: 4),
-              Text(
-                'Tingkat Keyakinan: ${result.confidenceLevel}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ),
+          _buildResultInfo(result),
           if (isTopResult) ...[
             SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              height: 8,
-              decoration: BoxDecoration(
-                color: Colors.grey[200],
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: result.confidence,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: confidenceColor,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ),
+            _buildProgressBar(confidence, confidenceColor),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildResultHeader(dynamic result, bool isTopResult, Color confidenceColor) {
+    final displayName = (result.label as String)
+        .replaceAll('_', ' ')
+        .split(' ')
+        .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+    
+    final confidencePercentage = '${((result.confidence as double) * 100).toStringAsFixed(1)}%';
+
+    return Row(
+      children: [
+        if (isTopResult) ...[
+          Icon(Icons.star, color: confidenceColor, size: 20),
+          SizedBox(width: 8),
+        ],
+        Expanded(
+          child: Text(
+            displayName,
+            style: TextStyle(
+              fontSize: isTopResult ? 20 : 16,
+              fontWeight: isTopResult ? FontWeight.bold : FontWeight.w600,
+              color: Colors.grey[800],
+            ),
+          ),
+        ),
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: confidenceColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            confidencePercentage,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultInfo(dynamic result) {
+    final confidence = result.confidence as double;
+    final confidenceLevel = _getConfidenceLevel(confidence);
+
+    return Row(
+      children: [
+        Icon(Icons.analytics_outlined, size: 16, color: Colors.grey[600]),
+        SizedBox(width: 4),
+        Text(
+          'Tingkat Keyakinan: $confidenceLevel',
+          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProgressBar(double confidence, Color confidenceColor) {
+    return Container(
+      width: double.infinity,
+      height: 8,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: confidence,
+        child: Container(
+          decoration: BoxDecoration(
+            color: confidenceColor,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
       ),
     );
   }
@@ -393,9 +410,7 @@ class ResultView extends StatelessWidget {
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Colors.grey[300]!),
-        ),
+        border: Border(top: BorderSide(color: Colors.grey[300]!)),
       ),
       child: Row(
         children: [
@@ -425,6 +440,24 @@ class ResultView extends StatelessWidget {
     );
   }
 
+  Color _getConfidenceColor(double confidence) {
+    if (confidence >= 0.8) return Colors.green;
+    if (confidence >= 0.6) return Colors.orange;
+    return Colors.red;
+  }
+
+  Color _getConfidenceBackgroundColor(double confidence) {
+    if (confidence >= 0.8) return Colors.green[50]!;
+    if (confidence >= 0.6) return Colors.orange[50]!;
+    return Colors.red[50]!;
+  }
+
+  String _getConfidenceLevel(double confidence) {
+    if (confidence >= 0.7) return 'Tinggi';
+    if (confidence >= AppConstants.confidenceThreshold) return 'Sedang';
+    return 'Rendah';
+  }
+
   void _retryPrediction() {
     final currentImage = fishController.currentImage.value;
     if (currentImage != null) {
@@ -438,9 +471,16 @@ class ResultView extends StatelessWidget {
         : null;
     
     if (topResult != null) {
+      final displayName = (topResult.label as String)
+          .replaceAll('_', ' ')
+          .split(' ')
+          .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+          .join(' ');
+      final confidencePercentage = '${((topResult.confidence as double) * 100).toStringAsFixed(1)}%';
+      
       Get.snackbar(
         'Berbagi Hasil',
-        '${topResult.displayName} dengan keyakinan ${topResult.confidencePercentage}',
+        '$displayName dengan keyakinan $confidencePercentage',
         duration: Duration(seconds: 2),
       );
     }

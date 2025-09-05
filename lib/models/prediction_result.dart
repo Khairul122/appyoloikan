@@ -1,3 +1,5 @@
+import '../utils/constants.dart';
+
 class PredictionResult {
   final String label;
   final double confidence;
@@ -34,8 +36,8 @@ class PredictionResult {
   String get confidencePercentage => '${(confidence * 100).toStringAsFixed(1)}%';
   
   bool get isHighConfidence => confidence > 0.7;
-  bool get isMediumConfidence => confidence > 0.4 && confidence <= 0.7;
-  bool get isLowConfidence => confidence <= 0.4;
+  bool get isMediumConfidence => confidence > AppConstants.confidenceThreshold && confidence <= 0.7;
+  bool get isLowConfidence => confidence <= AppConstants.confidenceThreshold;
   
   String get confidenceLevel {
     if (isHighConfidence) return 'Tinggi';

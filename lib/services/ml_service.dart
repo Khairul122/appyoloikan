@@ -25,23 +25,18 @@ class MLService {
 
   Future<bool> loadModel() async {
     try {
-      print('Loading model...');
-      
       final modelExists = await AppConstants.checkModelExists();
       if (!modelExists) {
-        print('Model file not found');
         return false;
       }
       
       _labels = await AppConstants.loadLabels();
       if (_labels.isEmpty) {
-        print('No labels loaded');
         return false;
       }
-      print('Labels loaded: ${_labels.length} classes');
       
       final options = InterpreterOptions()
-        ..threads = 2
+        ..threads = AppConstants.threads
         ..useNnApiForAndroid = false;
       
       _interpreter = await Interpreter.fromAsset(AppConstants.modelPath, options: options);
@@ -51,19 +46,15 @@ class MLService {
       _inputShape = inputTensor.shape;
       _outputShape = outputTensor.shape;
       
-      print('Model loaded successfully');
-      print('Input: $_inputShape, Output: $_outputShape');
-      
       _isModelLoaded = true;
       return true;
     } catch (e) {
-      print('Model loading failed: $e');
       _isModelLoaded = false;
       return false;
     }
   }
 
-  Future<List<PredictionResult>> predict(File imageFile) async {
+  Future<List<Map<String, dynamic>>> predict(File imageFile) async {
     if (!_isModelLoaded || _interpreter == null) {
       throw Exception('Model not loaded');
     }
@@ -138,8 +129,8 @@ class MLService {
     return _allocTensorByShape(_outputShape);
   }
 
-  List<PredictionResult> _processDetectionOutput(dynamic output) {
-    List<PredictionResult> results = [];
+  List<Map<String, dynamic>> _processDetectionOutput(dynamic output) {
+    List<Map<String, dynamic>> results = [];
     
     try {
       dynamic detections = output;
@@ -162,20 +153,19 @@ class MLService {
             
             if (confidence > AppConstants.confidenceThreshold && 
                 classId >= 0 && classId < _labels.length) {
-              results.add(PredictionResult(
-                label: _labels[classId],
-                confidence: confidence,
-                index: classId,
-              ));
+              results.add({
+                'label': _labels[classId],
+                'confidence': confidence,
+                'index': classId,
+              });
             }
           }
         }
       }
       
-      results.sort((a, b) => b.confidence.compareTo(a.confidence));
+      results.sort((a, b) => (b['confidence'] as double).compareTo(a['confidence'] as double));
       return results.take(AppConstants.maxResults).toList();
     } catch (e) {
-      print('Error processing output: $e');
       return [];
     }
   }

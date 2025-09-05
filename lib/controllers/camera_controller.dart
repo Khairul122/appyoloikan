@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:get/get.dart';
 import '../main.dart';
+import '../utils/constants.dart';
 
 class CameraControllerX extends GetxController {
   CameraController? cameraController;
@@ -30,7 +31,7 @@ class CameraControllerX extends GetxController {
     _isInitializing = true;
     try {
       if (cameras.isEmpty) {
-        errorMessage.value = 'No cameras available';
+        errorMessage.value = AppConstants.errorCameraNotAvailable;
         return;
       }
 
@@ -38,11 +39,9 @@ class CameraControllerX extends GetxController {
       
       cameraController = CameraController(
         cameras[selectedCameraIndex.value],
-        ResolutionPreset.medium,
-        enableAudio: false,
-        imageFormatGroup: Platform.isAndroid 
-            ? ImageFormatGroup.yuv420 
-            : ImageFormatGroup.bgra8888,
+        AppConstants.cameraResolution,
+        enableAudio: AppConstants.enableAudio,
+        imageFormatGroup: AppConstants.imageFormatGroup,
       );
 
       await cameraController!.initialize();
@@ -55,7 +54,7 @@ class CameraControllerX extends GetxController {
         errorMessage.value = '';
       }
     } catch (e) {
-      errorMessage.value = 'Camera initialization failed: $e';
+      errorMessage.value = '${AppConstants.errorCameraNotAvailable}: $e';
       isCameraInitialized.value = false;
       if (cameraController != null) {
         await cameraController!.dispose();
@@ -70,7 +69,8 @@ class CameraControllerX extends GetxController {
     try {
       await cameraController!.setExposureMode(ExposureMode.auto);
       await cameraController!.setFocusMode(FocusMode.auto);
-      actualFps.value = 30;
+      await cameraController!.setFlashMode(FlashMode.off);
+      actualFps.value = 15;
     } catch (e) {
       print('Failed to configure camera: $e');
     }
@@ -109,7 +109,7 @@ class CameraControllerX extends GetxController {
       
       return File(image.path);
     } catch (e) {
-      errorMessage.value = 'Failed to take picture: $e';
+      errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
       return null;
     }
   }
@@ -143,7 +143,7 @@ class CameraControllerX extends GetxController {
       await Future.delayed(Duration(milliseconds: 100));
       await initializeCamera();
     } catch (e) {
-      errorMessage.value = 'Failed to switch camera: $e';
+      errorMessage.value = '${AppConstants.errorCameraNotAvailable}: $e';
     }
   }
 
@@ -211,7 +211,7 @@ class CameraControllerX extends GetxController {
     await stopImageStreamSafe();
   }
 
-  ResolutionPreset get optimalResolutionForDetection => ResolutionPreset.medium;
+  ResolutionPreset get optimalResolutionForDetection => AppConstants.cameraResolution;
   
   bool get isReady => isCameraInitialized.value && 
                      !isDisposed.value && 

@@ -25,19 +25,9 @@ class LiveDetectionService {
       if (_isModelLoaded) return true;
       
       _labels = await AppConstants.loadLabels();
-      if (_labels.isEmpty) {
-        _labels = [
-          'ikan_baramundi',
-          'ikan_belanak_merah', 
-          'ikan_cakalang',
-          'ikan_kakap_putih',
-          'ikan_kembung',
-          'ikan_sarden'
-        ];
-      }
       
       final options = InterpreterOptions()
-        ..threads = 2
+        ..threads = AppConstants.threads
         ..useNnApiForAndroid = false;
       
       _interpreter = await Interpreter.fromAsset(AppConstants.modelPath, options: options);
@@ -158,7 +148,9 @@ class LiveDetectionService {
           final confidence = det[4].toDouble();
           final classId = det[5].round();
           
-          if (confidence >= 0.5 && classId >= 0 && classId < _labels.length && confidence > bestConfidence) {
+          if (confidence >= AppConstants.confidenceThreshold && 
+              classId >= 0 && classId < _labels.length && 
+              confidence > bestConfidence) {
             final xCenter = det[0].toDouble();
             final yCenter = det[1].toDouble(); 
             final width = det[2].toDouble();

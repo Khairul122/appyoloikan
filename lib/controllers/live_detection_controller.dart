@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:get/get.dart';
 import '../models/detection_result.dart';
 import '../services/live_detection_service.dart';
+import '../utils/constants.dart';
 import 'dart:ui' show Size;
 
 class LiveDetectionController extends GetxController {
@@ -20,9 +21,9 @@ class LiveDetectionController extends GetxController {
   CameraController? _cameraController;
   int _frameCount = 0;
   int _processedFrames = 0;
+  int _droppedFrames = 0;
   bool _isProcessing = false;
 
-  static const int _frameSkip = 3;
   int _frameCounter = 0;
 
   @override
@@ -39,11 +40,11 @@ class LiveDetectionController extends GetxController {
         errorMessage.value = '';
       } else {
         isModelLoaded.value = false;
-        errorMessage.value = 'Failed to load detection model';
+        errorMessage.value = AppConstants.errorModelNotLoaded;
       }
     } catch (e) {
       isModelLoaded.value = false;
-      errorMessage.value = 'Error loading model: $e';
+      errorMessage.value = '${AppConstants.errorModelNotLoaded}: $e';
     }
   }
 
@@ -56,7 +57,7 @@ class LiveDetectionController extends GetxController {
       await stopDetection();
 
       _cameraController = cameraController;
-      final ps = _cameraController!.value.previewSize;
+      final ps = cameraController.value.previewSize;
       if (ps != null) {
         previewSize = Size(ps.width, ps.height);
       }
@@ -65,6 +66,7 @@ class LiveDetectionController extends GetxController {
       errorMessage.value = '';
       _frameCount = 0;
       _processedFrames = 0;
+      _droppedFrames = 0;
       _frameCounter = 0;
       _isProcessing = false;
       currentDetection.value = null;
@@ -72,7 +74,7 @@ class LiveDetectionController extends GetxController {
       _startFpsCounter();
       await _startImageStream();
     } catch (e) {
-      errorMessage.value = 'Failed to start detection: $e';
+      errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
       isDetectionActive.value = false;
     }
   }
@@ -88,7 +90,8 @@ class LiveDetectionController extends GetxController {
 
       await _cameraController!.startImageStream(_onFrame);
     } catch (e) {
-      errorMessage.value = 'Failed to start image stream: $e';
+      errorMessage.value = '${AppConstants.errorCameraNotAvailable}: $e';
+      isDetectionActive.value = false;
     }
   }
 
@@ -98,7 +101,7 @@ class LiveDetectionController extends GetxController {
     _frameCount++;
     _frameCounter++;
 
-    if (_frameCounter % _frameSkip != 0) return;
+    if (_frameCounter % AppConstants.frameStride != 0) return;
 
     _processFrame(cameraImage);
   }
@@ -143,7 +146,7 @@ class LiveDetectionController extends GetxController {
       }
     } catch (e) {
       if (isDetectionActive.value) {
-        errorMessage.value = 'Detection error: $e';
+        errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
       }
     } finally {
       isDetecting.value = false;
@@ -174,17 +177,20 @@ class LiveDetectionController extends GetxController {
     _frameCount = 0;
     _processedFrames = 0;
     _frameCounter = 0;
+    _droppedFrames = 0;
   }
 
   void _startFpsCounter() {
     _frameCount = 0;
     _processedFrames = 0;
+    _droppedFrames = 0;
     _fpsTimer?.cancel();
     _fpsTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       if (isDetectionActive.value) {
         fps.value = _processedFrames;
         _frameCount = 0;
         _processedFrames = 0;
+        _droppedFrames = 0;
       } else {
         timer.cancel();
       }

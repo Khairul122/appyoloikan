@@ -6,7 +6,7 @@ import '../controllers/fish_controller.dart';
 import '../routes/app_routes.dart';
 import '../views/camera_view.dart';
 import '../views/result_view.dart';
-import '../utils/app_colors.dart';
+import '../utils/constants.dart';
 
 class HomeView extends StatelessWidget {
   final FishController fishController = Get.find<FishController>();
@@ -14,68 +14,69 @@ class HomeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Fish Classification'),
-        backgroundColor: Colors.blue[600],
-        foregroundColor: Colors.white,
-        elevation: 2,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.history),
-            onPressed: () => _showRecentImages(context),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              switch (value) {
-                case 'live_detection':
-                  _navigateToLiveDetection();
-                  break;
-                case 'clear_all':
-                  _showClearAllDialog(context);
-                  break;
-                case 'about':
-                  _showAboutDialog(context);
-                  break;
-              }
-            },
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem(
-                value: 'live_detection',
-                child: Row(
-                  children: [
-                    Icon(Icons.video_camera_front, color: Colors.green),
-                    SizedBox(width: 8),
-                    Text('Live Detection'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'clear_all',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_sweep, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Clear All Images'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'about',
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.blue),
-                    SizedBox(width: 8),
-                    Text('About'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(context),
       body: Obx(() => _buildBody()),
       floatingActionButton: _buildFloatingActionButton(),
     );
+  }
+
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
+    return AppBar(
+      title: Text(AppConstants.appName),
+      backgroundColor: Colors.blue[600],
+      foregroundColor: Colors.white,
+      elevation: 2,
+      actions: [
+        IconButton(
+          icon: Icon(Icons.history),
+          onPressed: () => _showRecentImages(context),
+        ),
+        _buildPopupMenu(),
+      ],
+    );
+  }
+
+  Widget _buildPopupMenu() {
+    return PopupMenuButton<String>(
+      onSelected: _handleMenuSelection,
+      itemBuilder: (BuildContext context) => [
+        _buildMenuItem('live_detection', Icons.video_camera_front, 'Live Detection', Colors.green),
+        _buildMenuItem('clear_all', Icons.delete_sweep, 'Clear All Images', Colors.red),
+        _buildMenuItem('about', Icons.info_outline, 'About', Colors.blue),
+      ],
+    );
+  }
+
+  PopupMenuItem<String> _buildMenuItem(
+    String value, 
+    IconData icon, 
+    String text, 
+    Color color
+  ) {
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          SizedBox(width: 8),
+          Text(text),
+        ],
+      ),
+    );
+  }
+
+  void _handleMenuSelection(String value) {
+    switch (value) {
+      case 'live_detection':
+        _navigateToLiveDetection();
+        break;
+      case 'clear_all':
+        _showClearAllDialog(Get.context!);
+        break;
+      case 'about':
+        _showAboutDialog(Get.context!);
+        break;
+    }
   }
 
   Widget _buildBody() {
@@ -105,10 +106,7 @@ class HomeView extends StatelessWidget {
           SizedBox(height: 16),
           Text(
             'Loading ML Model...',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -122,11 +120,7 @@ class HomeView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Colors.red[400],
-            ),
+            Icon(Icons.error_outline, size: 64, color: Colors.red[400]),
             SizedBox(height: 16),
             Text(
               'Failed to Load Model',
@@ -140,9 +134,7 @@ class HomeView extends StatelessWidget {
             Text(
               fishController.errorMessage.value,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(color: Colors.grey[600]),
             ),
             SizedBox(height: 24),
             ElevatedButton(
@@ -160,75 +152,72 @@ class HomeView extends StatelessWidget {
   }
 
   Widget _buildWelcomeView() {
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(height: 40),
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: Colors.blue[50],
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.camera_alt,
-              size: 60,
-              color: Colors.blue[600],
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _buildAppHeader(),
+              SizedBox(height: 40),
+              _buildFeatureGrid(),
+              SizedBox(height: 40),
+              _buildRecentImagesPreview(),
+            ],
           ),
-          SizedBox(height: 24),
-          Text(
-            'Fish Classification App',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAppHeader() {
+    return Column(
+      children: [
+        SizedBox(height: 40),
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            shape: BoxShape.circle,
           ),
-          SizedBox(height: 12),
-          Text(
-            'Identifikasi jenis ikan dengan AI menggunakan YOLOv11',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-            ),
+          child: Icon(Icons.camera_alt, size: 60, color: Colors.blue[600]),
+        ),
+        SizedBox(height: 24),
+        Text(
+          AppConstants.appName,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[800],
           ),
-          SizedBox(height: 40),
-          _buildFeatureCard(
-            icon: Icons.camera_alt,
-            title: 'Ambil Foto',
-            description: 'Gunakan kamera untuk mengambil foto ikan secara langsung',
-            color: Colors.green,
-          ),
-          SizedBox(height: 16),
-          _buildFeatureCard(
-            icon: Icons.photo_library,
-            title: 'Upload Gambar',
-            description: 'Pilih gambar ikan dari galeri untuk dianalisis',
-            color: Colors.orange,
-          ),
-          SizedBox(height: 16),
-          _buildFeatureCard(
-            icon: Icons.video_camera_front,
-            title: 'Live Detection',
-            description: 'Deteksi ikan secara real-time dengan bounding box',
-            color: Colors.purple,
-          ),
-          SizedBox(height: 16),
-          _buildFeatureCard(
-            icon: Icons.analytics,
-            title: 'Hasil Akurat',
-            description: 'Mendapatkan prediksi jenis ikan dengan tingkat akurasi tinggi',
-            color: Colors.blue,
-          ),
-          SizedBox(height: 40),
-          _buildRecentImagesPreview(),
-        ],
-      ),
+        ),
+        SizedBox(height: 12),
+        Text(
+          AppConstants.appDescription,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeatureGrid() {
+    final features = [
+      _FeatureData(Icons.camera_alt, 'Ambil Foto', 'Gunakan kamera untuk mengambil foto ikan secara langsung', Colors.green),
+      _FeatureData(Icons.photo_library, 'Upload Gambar', 'Pilih gambar ikan dari galeri untuk dianalisis', Colors.orange),
+      _FeatureData(Icons.video_camera_front, 'Live Detection', 'Deteksi ikan secara real-time dengan bounding box', Colors.purple),
+      _FeatureData(Icons.analytics, 'Hasil Akurat', 'Mendapatkan prediksi jenis ikan dengan tingkat akurasi tinggi', Colors.blue),
+    ];
+
+    return Column(
+      children: features.map((feature) => _buildFeatureCard(
+        icon: feature.icon,
+        title: feature.title,
+        description: feature.description,
+        color: feature.color,
+      )).toList(),
     );
   }
 
@@ -240,9 +229,8 @@ class HomeView extends StatelessWidget {
   }) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      margin: EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: EdgeInsets.all(16),
         child: Row(
@@ -254,11 +242,7 @@ class HomeView extends StatelessWidget {
                 color: color.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                icon,
-                size: 24,
-                color: color,
-              ),
+              child: Icon(icon, size: 24, color: color),
             ),
             SizedBox(width: 16),
             Expanded(
@@ -276,10 +260,7 @@ class HomeView extends StatelessWidget {
                   SizedBox(height: 4),
                   Text(
                     description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                   ),
                 ],
               ),
@@ -324,30 +305,31 @@ class HomeView extends StatelessWidget {
               itemCount: fishController.recentImages.length.clamp(0, 5),
               itemBuilder: (context, index) {
                 final image = fishController.recentImages[index];
-                return GestureDetector(
-                  onTap: () => fishController.selectImage(image),
-                  child: Container(
-                    width: 100,
-                    margin: EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey[300]!),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        image,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                );
+                return _buildImagePreview(image);
               },
             ),
           ),
         ],
       );
     });
+  }
+
+  Widget _buildImagePreview(File image) {
+    return GestureDetector(
+      onTap: () => fishController.selectImage(image),
+      child: Container(
+        width: 100,
+        margin: EdgeInsets.only(right: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(image, fit: BoxFit.cover),
+        ),
+      ),
+    );
   }
 
   Widget _buildFloatingActionButton() {
@@ -372,55 +354,38 @@ class HomeView extends StatelessWidget {
         heroTag: "speed-dial-hero-tag",
         elevation: 8.0,
         shape: CircleBorder(),
-        children: [
-          SpeedDialChild(
-            child: Icon(Icons.camera_alt, color: Colors.white),
-            backgroundColor: Colors.green[600],
-            foregroundColor: Colors.white,
-            label: 'Kamera',
-            labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
-            onTap: () => _handleCameraCapture(),
-          ),
-          SpeedDialChild(
-            child: Icon(Icons.photo_library, color: Colors.white),
-            backgroundColor: Colors.orange[600],
-            foregroundColor: Colors.white,
-            label: 'Galeri',
-            labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
-            onTap: () => fishController.pickImageFromGallery(),
-          ),
-          SpeedDialChild(
-            child: Icon(Icons.camera, color: Colors.white),
-            backgroundColor: Colors.purple[600],
-            foregroundColor: Colors.white,
-            label: 'Kamera Langsung',
-            labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
-            onTap: () => _navigateToCamera(),
-          ),
-          SpeedDialChild(
-            child: Icon(Icons.video_camera_front, color: Colors.white),
-            backgroundColor: Colors.red[600],
-            foregroundColor: Colors.white,
-            label: 'Live Detection',
-            labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
-            onTap: () => _navigateToLiveDetection(),
-          ),
-        ],
+        children: _buildSpeedDialChildren(),
       );
     });
   }
 
-  void _handleCameraCapture() {
-    fishController.pickImageFromCamera();
+  List<SpeedDialChild> _buildSpeedDialChildren() {
+    return [
+      _buildSpeedDialChild(Icons.camera_alt, Colors.green[600]!, 'Kamera', fishController.pickImageFromCamera),
+      _buildSpeedDialChild(Icons.photo_library, Colors.orange[600]!, 'Galeri', fishController.pickImageFromGallery),
+      _buildSpeedDialChild(Icons.camera, Colors.purple[600]!, 'Kamera Langsung', _navigateToCamera),
+      _buildSpeedDialChild(Icons.video_camera_front, Colors.red[600]!, 'Live Detection', _navigateToLiveDetection),
+    ];
   }
 
-  void _navigateToCamera() {
-    Get.to(() => CameraView());
+  SpeedDialChild _buildSpeedDialChild(
+    IconData icon, 
+    Color backgroundColor, 
+    String label, 
+    VoidCallback onTap
+  ) {
+    return SpeedDialChild(
+      child: Icon(icon, color: Colors.white),
+      backgroundColor: backgroundColor,
+      foregroundColor: Colors.white,
+      label: label,
+      labelStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
+      onTap: onTap,
+    );
   }
 
-  void _navigateToLiveDetection() {
-    Get.toNamed(AppRoutes.liveDetection);
-  }
+  void _navigateToCamera() => Get.to(() => CameraView());
+  void _navigateToLiveDetection() => Get.toNamed(AppRoutes.liveDetection);
 
   void _showRecentImages(BuildContext context) {
     showModalBottomSheet(
@@ -429,96 +394,101 @@ class HomeView extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.9,
-        expand: false,
-        builder: (context, scrollController) {
-          return Container(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Gambar Terkini',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 16),
-                Expanded(
-                  child: Obx(() {
-                    if (fishController.recentImages.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.photo_library_outlined,
-                              size: 64,
-                              color: Colors.grey[400],
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'Belum ada gambar',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
+      builder: (context) => _buildRecentImagesSheet(),
+    );
+  }
 
-                    return GridView.builder(
-                      controller: scrollController,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                      ),
-                      itemCount: fishController.recentImages.length,
-                      itemBuilder: (context, index) {
-                        final image = fishController.recentImages[index];
-                        return GestureDetector(
-                          onTap: () {
-                            Get.back();
-                            fishController.selectImage(image);
-                          },
-                          onLongPress: () => _showImageOptions(context, image),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.file(
-                                image,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  }),
-                ),
-              ],
-            ),
-          );
+  Widget _buildRecentImagesSheet() {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            children: [
+              _buildSheetHandle(),
+              SizedBox(height: 16),
+              Text(
+                'Gambar Terkini',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 16),
+              Expanded(child: _buildImageGrid(scrollController)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSheetHandle() {
+    return Container(
+      width: 40,
+      height: 4,
+      decoration: BoxDecoration(
+        color: Colors.grey[300],
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+  }
+
+  Widget _buildImageGrid(ScrollController scrollController) {
+    return Obx(() {
+      if (fishController.recentImages.isEmpty) {
+        return _buildEmptyImageState();
+      }
+
+      return GridView.builder(
+        controller: scrollController,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+        ),
+        itemCount: fishController.recentImages.length,
+        itemBuilder: (context, index) {
+          final image = fishController.recentImages[index];
+          return _buildGridImageItem(image);
         },
+      );
+    });
+  }
+
+  Widget _buildEmptyImageState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey[400]),
+          SizedBox(height: 16),
+          Text(
+            'Belum ada gambar',
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridImageItem(File image) {
+    return GestureDetector(
+      onTap: () {
+        Get.back();
+        fishController.selectImage(image);
+      },
+      onLongPress: () => _showImageOptions(Get.context!, image),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(image, fit: BoxFit.cover),
+        ),
       ),
     );
   }
@@ -609,11 +579,11 @@ class HomeView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Fish Classification App'),
+            Text(AppConstants.appName),
             SizedBox(height: 8),
-            Text('Versi: 1.0.0'),
+            Text('Versi: ${AppConstants.appVersion}'),
             SizedBox(height: 8),
-            Text('Menggunakan YOLOv11 untuk klasifikasi jenis ikan'),
+            Text(AppConstants.appDescription),
             SizedBox(height: 8),
             Text('Dikembangkan dengan Flutter'),
           ],
@@ -627,4 +597,13 @@ class HomeView extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FeatureData {
+  final IconData icon;
+  final String title;
+  final String description;
+  final Color color;
+
+  _FeatureData(this.icon, this.title, this.description, this.color);
 }

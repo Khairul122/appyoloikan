@@ -1,3 +1,5 @@
+import '../utils/constants.dart';
+
 class DetectionResult {
   final String label;
   final double confidence;
@@ -6,9 +8,6 @@ class DetectionResult {
   final double y;
   final double width;
   final double height;
-  
-  late final String _displayName;
-  late final String _confidencePercentage;
 
   DetectionResult({
     required this.label,
@@ -18,22 +17,21 @@ class DetectionResult {
     required this.y,
     required this.width,
     required this.height,
-  }) {
-    _displayName = label
+  });
+
+  String get displayName {
+    return label
         .replaceAll('_', ' ')
         .split(' ')
         .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
         .join(' ');
-    
-    _confidencePercentage = '${(confidence * 100).toStringAsFixed(1)}%';
   }
 
-  String get displayName => _displayName;
-  String get confidencePercentage => _confidencePercentage;
+  String get confidencePercentage => '${(confidence * 100).toStringAsFixed(1)}%';
   
   bool get isHighConfidence => confidence > 0.7;
-  bool get isMediumConfidence => confidence > 0.4 && confidence <= 0.7;
-  bool get isLowConfidence => confidence <= 0.4;
+  bool get isMediumConfidence => confidence > AppConstants.confidenceThreshold && confidence <= 0.7;
+  bool get isLowConfidence => confidence <= AppConstants.confidenceThreshold;
 
   String get confidenceLevel {
     if (isHighConfidence) return 'Tinggi';
@@ -49,7 +47,8 @@ class DetectionResult {
     return x >= 0 && y >= 0 && 
            x + width <= maxWidth && 
            y + height <= maxHeight &&
-           width > 0 && height > 0;
+           width > AppConstants.minBoundingBoxSize && 
+           height > AppConstants.minBoundingBoxSize;
   }
   
   @override

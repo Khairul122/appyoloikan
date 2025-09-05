@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import '../models/prediction_result.dart';
 import '../services/ml_service.dart';
 import '../services/image_service.dart';
+import '../utils/constants.dart';
 
 class FishController extends GetxController {
   final MLService _mlService = MLService.instance;
@@ -37,10 +38,10 @@ class FishController extends GetxController {
       isModelLoaded.value = success;
       
       if (!success) {
-        errorMessage.value = 'Failed to load ML model';
+        errorMessage.value = AppConstants.errorModelNotLoaded;
       }
     } catch (e) {
-      errorMessage.value = 'Error loading model: $e';
+      errorMessage.value = '${AppConstants.errorModelNotLoaded}: $e';
       isModelLoaded.value = false;
     } finally {
       isModelLoading.value = false;
@@ -56,12 +57,12 @@ class FishController extends GetxController {
           currentImage.value = image;
           await predictImage(image);
         } else {
-          Get.snackbar('Error', 'Invalid image file');
+          Get.snackbar('Error', AppConstants.errorImageNotFound);
         }
       }
     } catch (e) {
-      errorMessage.value = 'Error picking image: $e';
-      Get.snackbar('Error', 'Failed to pick image from gallery');
+      errorMessage.value = '${AppConstants.errorImageNotFound}: $e';
+      Get.snackbar('Error', AppConstants.errorImageNotFound);
     }
   }
 
@@ -74,18 +75,18 @@ class FishController extends GetxController {
           currentImage.value = image;
           await predictImage(image);
         } else {
-          Get.snackbar('Error', 'Invalid image captured');
+          Get.snackbar('Error', AppConstants.errorImageNotFound);
         }
       }
     } catch (e) {
-      errorMessage.value = 'Error taking photo: $e';
-      Get.snackbar('Error', 'Failed to take photo');
+      errorMessage.value = '${AppConstants.errorCameraNotAvailable}: $e';
+      Get.snackbar('Error', AppConstants.errorCameraNotAvailable);
     }
   }
 
   Future<void> predictImage(File imageFile) async {
     if (!isModelLoaded.value) {
-      Get.snackbar('Error', 'Model is not loaded yet');
+      Get.snackbar('Error', AppConstants.errorModelNotLoaded);
       return;
     }
 
@@ -95,30 +96,37 @@ class FishController extends GetxController {
       predictionResults.clear();
 
       final results = await _mlService.predict(imageFile);
-      predictionResults.assignAll(results);
+      predictionResults.assignAll(results.map((result) => PredictionResult.fromMap(result)).toList());
 
       final savedImage = await _imageService.saveImageToLocalStorage(imageFile);
       if (savedImage != null) {
         recentImages.insert(0, savedImage);
-        if (recentImages.length > 10) {
+        if (recentImages.length > AppConstants.maxStoredImages) {
           final oldImage = recentImages.removeLast();
           _imageService.deleteImage(oldImage);
         }
       }
 
       if (results.isEmpty) {
-        Get.snackbar('Info', 'No fish detected in the image');
+        Get.snackbar('Info', AppConstants.errorNoResults);
       } else {
         final topResult = results.first;
+        final displayName = (topResult['label'] as String)
+            .replaceAll('_', ' ')
+            .split(' ')
+            .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+            .join(' ');
+        final confidencePercentage = '${((topResult['confidence'] as double) * 100).toStringAsFixed(1)}%';
+        
         Get.snackbar(
           'Detection Result', 
-          '${topResult.displayName} (${topResult.confidencePercentage})',
+          '$displayName ($confidencePercentage)',
           duration: Duration(seconds: 3),
         );
       }
     } catch (e) {
-      errorMessage.value = 'Prediction failed: $e';
-      Get.snackbar('Error', 'Failed to analyze image');
+      errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
+      Get.snackbar('Error', AppConstants.errorPredictionFailed);
     } finally {
       isPredicting.value = false;
     }
@@ -142,7 +150,7 @@ class FishController extends GetxController {
           currentImage.value = null;
           predictionResults.clear();
         }
-        Get.snackbar('Success', 'Image deleted');
+        Get.snackbar('Success', AppConstants.successImageDeleted);
       }
     } catch (e) {
       Get.snackbar('Error', 'Failed to delete image');

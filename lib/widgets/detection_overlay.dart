@@ -1,92 +1,93 @@
 import 'package:flutter/material.dart';
 import '../models/detection_result.dart';
-import '../utils/app_colors.dart';
+import '../utils/constants.dart';
 
 class DetectionOverlay extends StatelessWidget {
-  final List<DetectionResult> detections;
+  final DetectionResult? detection;
   final Size previewSize;
-  final double previewScale;
 
   const DetectionOverlay({
     Key? key,
-    required this.detections,
+    required this.detection,
     required this.previewSize,
-    required this.previewScale,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    if (detection == null) return SizedBox.shrink();
+
     return CustomPaint(
       size: previewSize,
-      painter: DetectionPainter(
-        detections: detections,
-        previewScale: previewScale,
-      ),
+      painter: DetectionPainter(detection: detection!),
     );
   }
 }
 
 class DetectionPainter extends CustomPainter {
-  final List<DetectionResult> detections;
-  final double previewScale;
+  final DetectionResult detection;
 
-  DetectionPainter({
-    required this.detections,
-    required this.previewScale,
-  });
+  DetectionPainter({required this.detection});
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (int i = 0; i < detections.length; i++) {
-      final detection = detections[i];
-      _drawDetection(canvas, detection, i);
+    try {
+      final rect = _calculateBoundingRect(size);
+      final color = _getConfidenceColor(detection.confidence);
+
+      _drawBackground(canvas, rect, color);
+      _drawBorder(canvas, rect, color);
+      _drawCorners(canvas, rect, color);
+      _drawLabel(canvas, detection, rect, color);
+      
+    } catch (e) {
+      // Error handled silently in production
     }
   }
 
-  void _drawDetection(Canvas canvas, DetectionResult detection, int index) {
-    final confidenceColor = AppColors.getConfidenceColor(detection.confidence);
+  Rect _calculateBoundingRect(Size size) {
+    final x = detection.x.clamp(0.0, size.width - AppConstants.minBoundingBoxSize);
+    final y = detection.y.clamp(0.0, size.height - AppConstants.minBoundingBoxSize);
+    final width = detection.width.clamp(AppConstants.minBoundingBoxSize.toDouble(), size.width - x);
+    final height = detection.height.clamp(AppConstants.minBoundingBoxSize.toDouble(), size.height - y);
     
-    final rect = Rect.fromLTWH(
-      detection.x * previewScale,
-      detection.y * previewScale,
-      detection.width * previewScale,
-      detection.height * previewScale,
-    );
-
-    final boundingBoxPaint = Paint()
-      ..color = confidenceColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
-
-    final backgroundPaint = Paint()
-      ..color = confidenceColor.withOpacity(0.2)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawRect(rect, backgroundPaint);
-    canvas.drawRect(rect, boundingBoxPaint);
-
-    _drawCorners(canvas, rect, confidenceColor);
-    _drawLabel(canvas, detection, rect, confidenceColor);
+    return Rect.fromLTWH(x, y, width, height);
   }
 
-  void _drawCorners(Canvas canvas, Rect rect, Color color) {
-    final cornerPaint = Paint()
+  void _drawBackground(Canvas canvas, Rect rect, Color color) {
+    final fillPaint = Paint()
+      ..color = color.withOpacity(0.2)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(rect, fillPaint);
+  }
+
+  void _drawBorder(Canvas canvas, Rect rect, Color color) {
+    final strokePaint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4.0;
+    canvas.drawRect(rect, strokePaint);
+  }
 
-    final cornerLength = 20.0;
-
+  void _drawCorners(Canvas canvas, Rect rect, Color color) {
+    final cornerLength = 30.0;
+    final cornerPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6.0;
+    
     final corners = [
-      [rect.topLeft, rect.topLeft + Offset(cornerLength, 0), rect.topLeft + Offset(0, cornerLength)],
-      [rect.topRight, rect.topRight + Offset(-cornerLength, 0), rect.topRight + Offset(0, cornerLength)],
-      [rect.bottomLeft, rect.bottomLeft + Offset(cornerLength, 0), rect.bottomLeft + Offset(0, -cornerLength)],
-      [rect.bottomRight, rect.bottomRight + Offset(-cornerLength, 0), rect.bottomRight + Offset(0, -cornerLength)],
+      [rect.topLeft, [Offset(cornerLength, 0), Offset(0, cornerLength)]],
+      [rect.topRight, [Offset(-cornerLength, 0), Offset(0, cornerLength)]],
+      [rect.bottomLeft, [Offset(cornerLength, 0), Offset(0, -cornerLength)]],
+      [rect.bottomRight, [Offset(-cornerLength, 0), Offset(0, -cornerLength)]],
     ];
 
     for (final corner in corners) {
-      canvas.drawLine(corner[0], corner[1], cornerPaint);
-      canvas.drawLine(corner[0], corner[2], cornerPaint);
+      final point = corner[0] as Offset;
+      final offsets = corner[1] as List<Offset>;
+      for (final offset in offsets) {
+        canvas.drawLine(point, point + offset, cornerPaint);
+      }
     }
   }
 
@@ -97,16 +98,18 @@ class DetectionPainter extends CustomPainter {
           text: detection.displayName,
           style: TextStyle(
             color: Colors.white,
-            fontSize: 14,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
+            height: 1.2,
           ),
         ),
         TextSpan(
           text: '\n${detection.confidencePercentage}',
           style: TextStyle(
             color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            height: 1.2,
           ),
         ),
       ],
@@ -121,57 +124,33 @@ class DetectionPainter extends CustomPainter {
 
     final labelRect = Rect.fromLTWH(
       rect.left,
-      rect.top - textPainter.height - 8,
-      textPainter.width + 12,
-      textPainter.height + 8,
-    );
-
-    final labelPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final labelBorderPaint = Paint()
-      ..color = color.withOpacity(0.8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(labelRect, Radius.circular(4)),
-      labelPaint,
+      (rect.top - textPainter.height - 16).clamp(0, rect.top),
+      textPainter.width + 24,
+      textPainter.height + 16,
     );
 
     canvas.drawRRect(
-      RRect.fromRectAndRadius(labelRect, Radius.circular(4)),
-      labelBorderPaint,
+      RRect.fromRectAndRadius(labelRect, Radius.circular(8)),
+      Paint()..color = color,
     );
 
-    textPainter.paint(
-      canvas,
-      Offset(labelRect.left + 6, labelRect.top + 4),
-    );
+    textPainter.paint(canvas, Offset(labelRect.left + 12, labelRect.top + 8));
 
     _drawConfidenceBar(canvas, detection, labelRect, color);
   }
 
   void _drawConfidenceBar(Canvas canvas, DetectionResult detection, Rect labelRect, Color color) {
+    final barHeight = 6.0;
     final barRect = Rect.fromLTWH(
-      labelRect.left + 6,
-      labelRect.bottom + 2,
-      labelRect.width - 12,
-      3,
+      labelRect.left + 12,
+      labelRect.bottom + 6,
+      labelRect.width - 24,
+      barHeight,
     );
 
-    final backgroundBarPaint = Paint()
-      ..color = Colors.white.withOpacity(0.3)
-      ..style = PaintingStyle.fill;
-
-    final confidenceBarPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
     canvas.drawRRect(
-      RRect.fromRectAndRadius(barRect, Radius.circular(1.5)),
-      backgroundBarPaint,
+      RRect.fromRectAndRadius(barRect, Radius.circular(barHeight / 2)),
+      Paint()..color = Colors.white.withOpacity(0.3),
     );
 
     final confidenceWidth = barRect.width * detection.confidence;
@@ -183,14 +162,18 @@ class DetectionPainter extends CustomPainter {
     );
 
     canvas.drawRRect(
-      RRect.fromRectAndRadius(confidenceRect, Radius.circular(1.5)),
-      confidenceBarPaint,
+      RRect.fromRectAndRadius(confidenceRect, Radius.circular(barHeight / 2)),
+      Paint()..color = Colors.white,
     );
   }
 
-  @override
-  bool shouldRepaint(covariant DetectionPainter oldDelegate) {
-    return detections != oldDelegate.detections ||
-           previewScale != oldDelegate.previewScale;
+  Color _getConfidenceColor(double confidence) {
+    if (confidence >= 0.8) return Colors.green;
+    if (confidence >= 0.7) return Colors.lightGreen;
+    if (confidence >= AppConstants.confidenceThreshold) return Colors.orange;
+    return Colors.red;
   }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
