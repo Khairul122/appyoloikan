@@ -13,6 +13,11 @@ class CameraControllerX extends GetxController {
   var errorMessage = ''.obs;
   var actualFps = 0.obs;
 
+  bool _isInitializing = false;
+  bool _isDisposing = false;
+  bool _isStreamStarting = false;
+  bool _isStreamStopping = false;
+
   @override
   void onInit() {
     super.onInit();
@@ -20,17 +25,20 @@ class CameraControllerX extends GetxController {
   }
 
   Future<void> initializeCamera() async {
-    if (cameras.isEmpty || isDisposed.value) {
-      errorMessage.value = 'No cameras available';
-      return;
-    }
-
+    if (_isInitializing || isDisposed.value) return;
+    
+    _isInitializing = true;
     try {
-      await stopCamera();
+      if (cameras.isEmpty) {
+        errorMessage.value = 'No cameras available';
+        return;
+      }
+
+      await _safeStopCamera();
       
       cameraController = CameraController(
         cameras[selectedCameraIndex.value],
-        ResolutionPreset.medium, // 640x480 untuk live detection
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: Platform.isAndroid 
             ? ImageFormatGroup.yuv420 
@@ -40,9 +48,7 @@ class CameraControllerX extends GetxController {
       await cameraController!.initialize();
       
       if (!isDisposed.value) {
-        // Set FPS untuk live detection
         await _configureCameraForLiveDetection();
-        
         isCameraInitialized.value = true;
         await cameraController!.setFlashMode(FlashMode.off);
         isFlashOn.value = false;
@@ -51,36 +57,36 @@ class CameraControllerX extends GetxController {
     } catch (e) {
       errorMessage.value = 'Camera initialization failed: $e';
       isCameraInitialized.value = false;
-      cameraController?.dispose();
-      cameraController = null;
+      if (cameraController != null) {
+        await cameraController!.dispose();
+        cameraController = null;
+      }
+    } finally {
+      _isInitializing = false;
     }
   }
 
   Future<void> _configureCameraForLiveDetection() async {
     try {
-      // Set exposure mode untuk performa yang konsisten
       await cameraController!.setExposureMode(ExposureMode.auto);
-      
-      // Set focus mode untuk live detection
       await cameraController!.setFocusMode(FocusMode.auto);
-      
-      // Dapatkan info FPS yang didukung
-      final fps = await _getOptimalFpsRange();
-      if (fps != null) {
-        actualFps.value = fps;
-      }
-      
+      actualFps.value = 30;
     } catch (e) {
-      print('Failed to configure camera for live detection: $e');
+      print('Failed to configure camera: $e');
     }
   }
 
-  Future<int?> _getOptimalFpsRange() async {
-    try {
-      // Target FPS 30 untuk live detection
-      return 30;
-    } catch (e) {
-      return null;
+  Future<void> _safeStopCamera() async {
+    if (cameraController != null) {
+      try {
+        await ensureImageStreamStopped();
+        await cameraController!.dispose();
+      } catch (e) {
+        print('Error during camera stop: $e');
+      } finally {
+        cameraController = null;
+        isCameraInitialized.value = false;
+      }
     }
   }
 
@@ -90,18 +96,15 @@ class CameraControllerX extends GetxController {
     }
 
     try {
-      // Temporarily stop image stream untuk capture
       final wasStreaming = cameraController!.value.isStreamingImages;
       if (wasStreaming) {
-        await cameraController!.stopImageStream();
+        await ensureImageStreamStopped();
       }
       
       final XFile image = await cameraController!.takePicture();
       
-      // Resume image stream jika diperlukan
       if (wasStreaming && !isDisposed.value) {
         await Future.delayed(Duration(milliseconds: 100));
-        // Note: Stream akan di-restart oleh detection controller
       }
       
       return File(image.path);
@@ -128,60 +131,84 @@ class CameraControllerX extends GetxController {
   }
 
   Future<void> switchCamera() async {
-    if (cameras.length < 2 || isDisposed.value) {
+    if (cameras.length < 2 || isDisposed.value || _isInitializing) {
       return;
     }
 
     try {
-      final wasStreaming = cameraController?.value.isStreamingImages ?? false;
-      
-      await stopCamera();
+      await _safeStopCamera();
       selectedCameraIndex.value = selectedCameraIndex.value == 0 ? 1 : 0;
       isRearCamera.value = !isRearCamera.value;
       
       await Future.delayed(Duration(milliseconds: 100));
       await initializeCamera();
-      
-      // Note: Detection controller will restart stream if needed
     } catch (e) {
       errorMessage.value = 'Failed to switch camera: $e';
     }
   }
 
-  Future<void> stopCamera() async {
+  Future<void> startImageStreamSafe(Function(CameraImage) onImage) async {
+    if (_isStreamStarting || _isStreamStopping || !isCameraInitialized.value || cameraController == null) {
+      return;
+    }
+
+    _isStreamStarting = true;
     try {
-      if (cameraController != null) {
-        // Ensure image stream is stopped cleanly
-        if (cameraController!.value.isStreamingImages) {
-          await cameraController!.stopImageStream();
-          await Future.delayed(Duration(milliseconds: 50));
-        }
-        
-        await cameraController!.dispose();
-        cameraController = null;
+      while (_isStreamStopping) {
+        await Future.delayed(Duration(milliseconds: 10));
       }
-      isCameraInitialized.value = false;
-      isFlashOn.value = false;
+
+      if (!cameraController!.value.isStreamingImages && !isDisposed.value) {
+        await cameraController!.startImageStream(onImage);
+      }
     } catch (e) {
-      print('Error stopping camera: $e');
+      print('Error starting image stream: $e');
+    } finally {
+      _isStreamStarting = false;
+    }
+  }
+
+  Future<void> stopImageStreamSafe() async {
+    if (_isStreamStopping || !isCameraInitialized.value || cameraController == null) {
+      return;
+    }
+
+    _isStreamStopping = true;
+    try {
+      if (cameraController!.value.isStreamingImages) {
+        await cameraController!.stopImageStream();
+        await Future.delayed(Duration(milliseconds: 50));
+      }
+    } catch (e) {
+      print('Error stopping image stream: $e');
+    } finally {
+      _isStreamStopping = false;
+    }
+  }
+
+  Future<void> stopCamera() async {
+    if (_isDisposing) return;
+    
+    _isDisposing = true;
+    try {
+      await _safeStopCamera();
+      isFlashOn.value = false;
+    } finally {
+      _isDisposing = false;
     }
   }
 
   Future<void> resumeCamera() async {
-    if (!isCameraInitialized.value && !isDisposed.value) {
+    if (!isCameraInitialized.value && !isDisposed.value && !_isInitializing) {
       await initializeCamera();
     }
   }
 
-  // Helper methods for live detection optimization
   bool get isStreamingImages => 
       cameraController?.value.isStreamingImages ?? false;
 
   Future<void> ensureImageStreamStopped() async {
-    if (isStreamingImages) {
-      await cameraController!.stopImageStream();
-      await Future.delayed(Duration(milliseconds: 50));
-    }
+    await stopImageStreamSafe();
   }
 
   ResolutionPreset get optimalResolutionForDetection => ResolutionPreset.medium;
@@ -189,7 +216,9 @@ class CameraControllerX extends GetxController {
   bool get isReady => isCameraInitialized.value && 
                      !isDisposed.value && 
                      cameraController != null &&
-                     errorMessage.value.isEmpty;
+                     errorMessage.value.isEmpty &&
+                     !_isInitializing &&
+                     !_isDisposing;
 
   String get cameraInfo {
     if (!isCameraInitialized.value) return 'Camera not initialized';

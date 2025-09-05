@@ -22,70 +22,36 @@ class LiveDetectionService {
 
   Future<bool> loadModel() async {
     try {
-      print('Loading live detection model...');
+      if (_isModelLoaded) return true;
       
-      if (_isModelLoaded) {
-        print('Model already loaded');
-        return true;
-      }
-      
-      // Load labels
       _labels = await AppConstants.loadLabels();
       if (_labels.isEmpty) {
-        print('Using fallback labels');
         _labels = [
           'ikan_baramundi',
-          'ikan_belanak_merah',
+          'ikan_belanak_merah', 
           'ikan_cakalang',
           'ikan_kakap_putih',
           'ikan_kembung',
           'ikan_sarden'
         ];
       }
-      print('Labels loaded: ${_labels.length}');
       
-      // Load model with simple options
       final options = InterpreterOptions()
-        ..threads = 1
+        ..threads = 2
         ..useNnApiForAndroid = false;
       
-      try {
-        _interpreter = await Interpreter.fromAsset(AppConstants.modelPath, options: options);
-        print('Interpreter created successfully');
-      } catch (e) {
-        print('Failed to create interpreter: $e');
-        return false;
-      }
+      _interpreter = await Interpreter.fromAsset(AppConstants.modelPath, options: options);
       
-      // Get tensor shapes
-      try {
-        final inputTensor = _interpreter!.getInputTensor(0);
-        final outputTensor = _interpreter!.getOutputTensor(0);
-        _inputShape = inputTensor.shape;
-        _outputShape = outputTensor.shape;
-        
-        print('Input shape: $_inputShape');
-        print('Output shape: $_outputShape');
-      } catch (e) {
-        print('Failed to get tensor shapes: $e');
-        return false;
-      }
+      final inputTensor = _interpreter!.getInputTensor(0);
+      final outputTensor = _interpreter!.getOutputTensor(0);
+      _inputShape = inputTensor.shape;
+      _outputShape = outputTensor.shape;
       
-      // Prepare reusable tensors
-      try {
-        _prepareReusableTensors();
-        print('Reusable tensors prepared');
-      } catch (e) {
-        print('Failed to prepare tensors: $e');
-        return false;
-      }
-      
+      _prepareReusableTensors();
       _isModelLoaded = true;
-      print('Live detection model loaded successfully');
       return true;
       
     } catch (e) {
-      print('Error loading live detection model: $e');
       _isModelLoaded = false;
       return false;
     }
@@ -116,30 +82,25 @@ class LiveDetectionService {
     return List.generate(shape[0], (_) => _allocTensorByShape(shape.sublist(1)));
   }
 
-  Future<List<Map<String, dynamic>>> detectFromCameraData(Map<String, dynamic> data) async {
-    if (!_isModelLoaded || _interpreter == null) {
-      print('Model not loaded for detection');
-      return [];
-    }
+  Future<Map<String, dynamic>?> detectFromCameraData(Map<String, dynamic> data) async {
+    if (!_isModelLoaded || _interpreter == null) return null;
 
     try {
       final width = data['width'] as int;
       final height = data['height'] as int;
       final planes = data['planes'] as List;
+      
+      if (planes.isEmpty) return null;
+      
       final yBytes = planes[0]['bytes'] as Uint8List;
       
-      // Fill input tensor
       _fillInputTensor(yBytes, width, height);
-      
-      // Run inference
       _interpreter!.run(_reusableInput as Object, _reusableOutput);
       
-      // Process output
-      return _processOutput(width, height);
+      return _processSingleOutput(width, height);
       
     } catch (e) {
-      print('Detection error: $e');
-      return [];
+      return null;
     }
   }
 
@@ -152,9 +113,10 @@ class LiveDetectionService {
     final stepY = height / modelHeight;
     
     for (int h = 0; h < modelHeight; h++) {
+      final sourceY = (h * stepY).round().clamp(0, height - 1);
+      
       for (int w = 0; w < modelWidth; w++) {
         final sourceX = (w * stepX).round().clamp(0, width - 1);
-        final sourceY = (h * stepY).round().clamp(0, height - 1);
         final index = sourceY * width + sourceX;
         
         if (index < bytes.length) {
@@ -172,54 +134,61 @@ class LiveDetectionService {
     }
   }
 
-  List<Map<String, dynamic>> _processOutput(int imageWidth, int imageHeight) {
-    final results = <Map<String, dynamic>>[];
-    
+  Map<String, dynamic>? _processSingleOutput(int imageWidth, int imageHeight) {
     try {
-      List<List<double>> detections;
+      dynamic detections = _reusableOutput;
       
-      if (_reusableOutput is List && _reusableOutput.isNotEmpty && _reusableOutput[0] is List) {
-        detections = (_reusableOutput[0] as List).map<List<double>>((row) => (row as List).cast<double>()).toList();
-      } else {
-        return results;
-      }
-
-      for (final det in detections.take(50)) {
-        if (det.length >= 6) {
-          final xCenter = det[0];
-          final yCenter = det[1];
-          final width = det[2];
-          final height = det[3];
-          final confidence = det[4];
-          final classId = det[5].round();
-          
-          if (confidence > 0.5 && classId >= 0 && classId < _labels.length) {
-            final x = (xCenter - width / 2) * imageWidth;
-            final y = (yCenter - height / 2) * imageHeight;
-            final w = width * imageWidth;
-            final h = height * imageHeight;
-            
-            if (x >= 0 && y >= 0 && w > 10 && h > 10) {
-              results.add({
-                'label': _labels[classId],
-                'confidence': confidence,
-                'classIndex': classId,
-                'x': x.clamp(0.0, imageWidth.toDouble()),
-                'y': y.clamp(0.0, imageHeight.toDouble()),
-                'width': w.clamp(10.0, imageWidth.toDouble()),
-                'height': h.clamp(10.0, imageHeight.toDouble()),
-              });
-            }
-          }
+      if (_reusableOutput is List && _reusableOutput.isNotEmpty) {
+        if (_reusableOutput[0] is List) {
+          detections = _reusableOutput[0];
         }
       }
-
-      results.sort((a, b) => (b['confidence'] as double).compareTo(a['confidence'] as double));
-      return results.take(3).toList();
+      
+      if (detections is! List) return null;
+      
+      Map<String, dynamic>? bestDetection;
+      double bestConfidence = 0.0;
+      
+      for (int i = 0; i < detections.length && i < 300; i++) {
+        final det = detections[i];
+        
+        if (det is! List || det.length < 6) continue;
+        
+        try {
+          final confidence = det[4].toDouble();
+          final classId = det[5].round();
+          
+          if (confidence >= 0.5 && classId >= 0 && classId < _labels.length && confidence > bestConfidence) {
+            final xCenter = det[0].toDouble();
+            final yCenter = det[1].toDouble(); 
+            final width = det[2].toDouble();
+            final height = det[3].toDouble();
+            
+            final x = (xCenter - width / 2);
+            final y = (yCenter - height / 2);
+            final w = width;
+            final h = height;
+            
+            bestDetection = {
+              'label': _labels[classId],
+              'confidence': confidence,
+              'classIndex': classId,
+              'x': x,
+              'y': y,
+              'width': w,
+              'height': h,
+            };
+            bestConfidence = confidence;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+      
+      return bestDetection;
       
     } catch (e) {
-      print('Error processing output: $e');
-      return [];
+      return null;
     }
   }
 
@@ -231,9 +200,8 @@ class LiveDetectionService {
       _labels.clear();
       _reusableInput = null;
       _reusableOutput = null;
-      print('Live detection service disposed');
     } catch (e) {
-      print('Error disposing live detection service: $e');
+      print('Error disposing service: $e');
     }
   }
 }
