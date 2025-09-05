@@ -21,6 +21,11 @@ class FishController extends GetxController {
     super.onInit();
     loadModel();
     loadRecentImages();
+    _initializeServices();
+  }
+
+  Future<void> _initializeServices() async {
+    await _imageService.initialize();
   }
 
   Future<void> loadModel() async {
@@ -46,8 +51,13 @@ class FishController extends GetxController {
     try {
       final image = await _imageService.pickImageFromGallery();
       if (image != null) {
-        currentImage.value = image;
-        await predictImage(image);
+        final isValid = await _imageService.validateImageFile(image);
+        if (isValid) {
+          currentImage.value = image;
+          await predictImage(image);
+        } else {
+          Get.snackbar('Error', 'Invalid image file');
+        }
       }
     } catch (e) {
       errorMessage.value = 'Error picking image: $e';
@@ -59,8 +69,13 @@ class FishController extends GetxController {
     try {
       final image = await _imageService.pickImageFromCamera();
       if (image != null) {
-        currentImage.value = image;
-        await predictImage(image);
+        final isValid = await _imageService.validateImageFile(image);
+        if (isValid) {
+          currentImage.value = image;
+          await predictImage(image);
+        } else {
+          Get.snackbar('Error', 'Invalid image captured');
+        }
       }
     } catch (e) {
       errorMessage.value = 'Error taking photo: $e';

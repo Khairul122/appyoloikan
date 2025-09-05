@@ -11,6 +11,28 @@ class ImageService {
   ImageService._();
 
   final ImagePicker _picker = ImagePicker();
+  List<String> _labels = [];
+
+  Future<void> initialize() async {
+    _labels = await AppConstants.loadLabels();
+  }
+
+  String getFishName(int classIndex) {
+    if (classIndex < 0 || classIndex >= _labels.length) {
+      return 'Unknown Fish';
+    }
+    return _labels[classIndex]
+        .replaceAll('_', ' ')
+        .split(' ')
+        .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+  }
+
+  List<String> get allFishNames => _labels.map((label) => 
+      label.replaceAll('_', ' ').split(' ').map((word) => 
+          word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1)).join(' ')).toList();
+
+  int get totalFishTypes => _labels.length;
 
   Future<File?> pickImageFromGallery() async {
     try {
@@ -137,6 +159,21 @@ class ImageService {
       return totalSize / (1024 * 1024);
     } catch (e) {
       return 0;
+    }
+  }
+
+  Future<bool> validateImageFile(File imageFile) async {
+    try {
+      if (!await imageFile.exists()) return false;
+      if (!_isImageFile(imageFile.path)) return false;
+      
+      final stat = await imageFile.stat();
+      if (stat.size == 0) return false;
+      if (stat.size > (10 * 1024 * 1024)) return false;
+      
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 }

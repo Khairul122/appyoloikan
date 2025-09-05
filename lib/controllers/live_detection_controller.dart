@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
-import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:get/get.dart';
 import '../models/detection_result.dart';
@@ -22,24 +20,39 @@ class LiveDetectionController extends GetxController {
   int _skipCount = 0;
   bool _isProcessing = false;
   
-  static const int _skipFrames = 60;
+  static const int _skipFrames = 15;
 
-  Future<void> initializeModel() async {
+  @override
+  void onInit() {
+    super.onInit();
+    _loadModel();
+  }
+
+  Future<void> _loadModel() async {
     try {
-      if (isModelLoaded.value) return;
-      
+      print('Loading detection model...');
       final success = await _detectionService.loadModel();
-      isModelLoaded.value = success;
-      if (!success) {
+      if (success) {
+        isModelLoaded.value = true;
+        errorMessage.value = '';
+        print('Detection model loaded successfully');
+      } else {
+        isModelLoaded.value = false;
         errorMessage.value = 'Failed to load detection model';
+        print('Failed to load detection model');
       }
     } catch (e) {
-      errorMessage.value = 'Error initializing model: $e';
+      isModelLoaded.value = false;
+      errorMessage.value = 'Error loading model: $e';
+      print('Error loading detection model: $e');
     }
   }
 
   void startDetection(CameraController cameraController) {
-    if (!isModelLoaded.value) return;
+    if (!isModelLoaded.value) {
+      Get.snackbar('Error', 'Model not loaded yet');
+      return;
+    }
     
     try {
       stopDetection();
@@ -54,35 +67,43 @@ class LiveDetectionController extends GetxController {
       _startFpsCounter();
       _startImageStream();
       
+      print('Detection started');
+      
     } catch (e) {
       errorMessage.value = 'Failed to start detection: $e';
       isDetectionActive.value = false;
+      print('Error starting detection: $e');
     }
   }
 
   void _startImageStream() {
     if (_cameraController == null) return;
     
-    _cameraController!.startImageStream((CameraImage image) {
-      _skipCount++;
-      
-      if (_skipCount < _skipFrames || _isProcessing || !isDetectionActive.value) {
-        return;
-      }
-      
-      _skipCount = 0;
-      _processFrameWithIsolate(image);
-    });
+    try {
+      _cameraController!.startImageStream((CameraImage image) {
+        _skipCount++;
+        
+        if (_skipCount < _skipFrames || _isProcessing || !isDetectionActive.value) {
+          return;
+        }
+        
+        _skipCount = 0;
+        _processFrame(image);
+      });
+    } catch (e) {
+      errorMessage.value = 'Failed to start image stream: $e';
+      print('Error starting image stream: $e');
+    }
   }
 
-  void _processFrameWithIsolate(CameraImage cameraImage) async {
+  void _processFrame(CameraImage cameraImage) async {
     if (_isProcessing || !isDetectionActive.value) return;
     
     _isProcessing = true;
     isDetecting.value = true;
     
     try {
-      final result = await Isolate.run(() => _isolateDetection({
+      final result = await _detectionService.detectFromCameraData({
         'width': cameraImage.width,
         'height': cameraImage.height,
         'format': cameraImage.format.group.index,
@@ -91,17 +112,17 @@ class LiveDetectionController extends GetxController {
           'bytesPerRow': plane.bytesPerRow,
           'bytesPerPixel': plane.bytesPerPixel,
         }).toList(),
-      }));
+      });
       
-      if (isDetectionActive.value && result != null && result.isNotEmpty) {
+      if (isDetectionActive.value && result.isNotEmpty) {
         final detections = result.map((r) => DetectionResult(
-          label: r['label'],
-          confidence: r['confidence'],
-          classIndex: r['classIndex'],
-          x: r['x'],
-          y: r['y'],
-          width: r['width'],
-          height: r['height'],
+          label: r['label'] as String,
+          confidence: r['confidence'] as double,
+          classIndex: r['classIndex'] as int,
+          x: r['x'] as double,
+          y: r['y'] as double,
+          width: r['width'] as double,
+          height: r['height'] as double,
         )).toList();
         
         detectionResults.assignAll(detections);
@@ -110,24 +131,11 @@ class LiveDetectionController extends GetxController {
       
     } catch (e) {
       if (isDetectionActive.value) {
-        errorMessage.value = 'Detection error: $e';
+        print('Detection error: $e');
       }
     } finally {
       isDetecting.value = false;
       _isProcessing = false;
-    }
-  }
-
-  static Future<List<Map<String, dynamic>>?> _isolateDetection(Map<String, dynamic> data) async {
-    try {
-      final service = LiveDetectionService.instance;
-      if (!service.isModelLoaded) {
-        await service.loadModel();
-      }
-      
-      return await service.detectFromCameraData(data);
-    } catch (e) {
-      return null;
     }
   }
 
@@ -139,11 +147,11 @@ class LiveDetectionController extends GetxController {
     try {
       _cameraController?.stopImageStream();
     } catch (e) {
+      print('Error stopping image stream: $e');
     }
     
     _fpsTimer?.cancel();
     _fpsTimer = null;
-    
     _cameraController = null;
     
     detectionResults.clear();
@@ -151,13 +159,11 @@ class LiveDetectionController extends GetxController {
     _frameCount = 0;
     _skipCount = 0;
     
-    Future.delayed(Duration(milliseconds: 100), () {
-    });
+    print('Detection stopped');
   }
 
   void _startFpsCounter() {
     _frameCount = 0;
-    
     _fpsTimer?.cancel();
     _fpsTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       if (isDetectionActive.value) {
@@ -173,10 +179,18 @@ class LiveDetectionController extends GetxController {
     detectionResults.clear();
   }
 
+  void toggleDetection() {
+    if (isDetectionActive.value) {
+      stopDetection();
+    } else if (_cameraController != null) {
+      startDetection(_cameraController!);
+    }
+  }
+
   bool get hasDetections => detectionResults.isNotEmpty;
-  
-  DetectionResult? get topDetection => 
-      detectionResults.isNotEmpty ? detectionResults.first : null;
+  DetectionResult? get topDetection => detectionResults.isNotEmpty ? detectionResults.first : null;
+  int get detectionsCount => detectionResults.length;
+  bool get isReady => isModelLoaded.value && errorMessage.value.isEmpty;
 
   @override
   void onClose() {

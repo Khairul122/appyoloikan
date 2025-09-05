@@ -1,10 +1,6 @@
-import 'dart:io';
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
-import '../models/detection_result.dart';
 import '../utils/constants.dart';
 
 class LiveDetectionService {
@@ -23,85 +19,93 @@ class LiveDetectionService {
   dynamic _reusableOutput;
 
   bool get isModelLoaded => _isModelLoaded;
-  List<String> get labels => _labels;
 
   Future<bool> loadModel() async {
     try {
-      if (_isModelLoaded) return true;
+      print('Loading live detection model...');
       
-      try {
-        final modelBytes = await rootBundle.load(AppConstants.modelPath);
-        if (modelBytes.lengthInBytes == 0) return false;
-      } catch (e) {
-        return false;
+      if (_isModelLoaded) {
+        print('Model already loaded');
+        return true;
       }
       
-      _interpreter?.close();
+      // Load labels
+      _labels = await AppConstants.loadLabels();
+      if (_labels.isEmpty) {
+        print('Using fallback labels');
+        _labels = [
+          'ikan_baramundi',
+          'ikan_belanak_merah',
+          'ikan_cakalang',
+          'ikan_kakap_putih',
+          'ikan_kembung',
+          'ikan_sarden'
+        ];
+      }
+      print('Labels loaded: ${_labels.length}');
       
+      // Load model with simple options
       final options = InterpreterOptions()
         ..threads = 1
         ..useNnApiForAndroid = false;
       
-      _interpreter = await Interpreter.fromAsset(AppConstants.modelPath, options: options);
-      
-      final inputTensor = _interpreter!.getInputTensor(0);
-      final outputTensor = _interpreter!.getOutputTensor(0);
-      _inputShape = inputTensor.shape;
-      _outputShape = outputTensor.shape;
-      
-      _reusableInput = _prepareReusableInput();
-      _reusableOutput = _prepareReusableOutput();
-      
       try {
-        final labelsData = await rootBundle.loadString(AppConstants.labelsPath);
-        
-        if (AppConstants.labelsPath.endsWith('.json')) {
-          final jsonData = json.decode(labelsData);
-          if (jsonData is List) {
-            _labels = jsonData.cast<String>();
-          } else if (jsonData is Map && jsonData.containsKey('labels')) {
-            _labels = (jsonData['labels'] as List).cast<String>();
-          } else if (jsonData is Map && jsonData.containsKey('names')) {
-            final names = jsonData['names'] as Map;
-            _labels = List.generate(names.length, (i) => names[i.toString()] ?? 'unknown');
-          }
-        } else {
-          _labels = labelsData.split('\n')
-              .map((label) => label.trim())
-              .where((label) => label.isNotEmpty && !label.startsWith('#'))
-              .toList();
-        }
-        
-        if (_labels.isEmpty) return false;
+        _interpreter = await Interpreter.fromAsset(AppConstants.modelPath, options: options);
+        print('Interpreter created successfully');
       } catch (e) {
+        print('Failed to create interpreter: $e');
+        return false;
+      }
+      
+      // Get tensor shapes
+      try {
+        final inputTensor = _interpreter!.getInputTensor(0);
+        final outputTensor = _interpreter!.getOutputTensor(0);
+        _inputShape = inputTensor.shape;
+        _outputShape = outputTensor.shape;
+        
+        print('Input shape: $_inputShape');
+        print('Output shape: $_outputShape');
+      } catch (e) {
+        print('Failed to get tensor shapes: $e');
+        return false;
+      }
+      
+      // Prepare reusable tensors
+      try {
+        _prepareReusableTensors();
+        print('Reusable tensors prepared');
+      } catch (e) {
+        print('Failed to prepare tensors: $e');
         return false;
       }
       
       _isModelLoaded = true;
+      print('Live detection model loaded successfully');
       return true;
+      
     } catch (e) {
+      print('Error loading live detection model: $e');
       _isModelLoaded = false;
       return false;
     }
   }
 
-  List<List<List<List<double>>>> _prepareReusableInput() {
+  void _prepareReusableTensors() {
     final batchSize = _inputShape[0];
     final height = _inputShape[1];
     final width = _inputShape[2];
     final channels = _inputShape[3];
     
-    return List.generate(batchSize, (_) =>
+    _reusableInput = List.generate(batchSize, (_) =>
       List.generate(height, (_) =>
         List.generate(width, (_) =>
           List.filled(channels, 0.0)
         )
       )
     );
-  }
-
-  dynamic _prepareReusableOutput() {
-    return _allocTensorByShape(_outputShape);
+    
+    _reusableOutput = _allocTensorByShape(_outputShape);
   }
 
   dynamic _allocTensorByShape(List<int> shape) {
@@ -113,27 +117,33 @@ class LiveDetectionService {
   }
 
   Future<List<Map<String, dynamic>>> detectFromCameraData(Map<String, dynamic> data) async {
-    if (!_isModelLoaded || _interpreter == null) return [];
+    if (!_isModelLoaded || _interpreter == null) {
+      print('Model not loaded for detection');
+      return [];
+    }
 
     try {
       final width = data['width'] as int;
       final height = data['height'] as int;
-      final format = data['format'] as int;
       final planes = data['planes'] as List;
-      
       final yBytes = planes[0]['bytes'] as Uint8List;
       
-      _fillInputFromBytes(yBytes, width, height);
+      // Fill input tensor
+      _fillInputTensor(yBytes, width, height);
       
+      // Run inference
       _interpreter!.run(_reusableInput as Object, _reusableOutput);
       
-      return _processOutputToMap(width, height);
+      // Process output
+      return _processOutput(width, height);
+      
     } catch (e) {
+      print('Detection error: $e');
       return [];
     }
   }
 
-  void _fillInputFromBytes(Uint8List bytes, int width, int height) {
+  void _fillInputTensor(Uint8List bytes, int width, int height) {
     final modelWidth = _inputShape[2];
     final modelHeight = _inputShape[1];
     final channels = _inputShape[3];
@@ -143,8 +153,8 @@ class LiveDetectionService {
     
     for (int h = 0; h < modelHeight; h++) {
       for (int w = 0; w < modelWidth; w++) {
-        final sourceX = (w * stepX).round();
-        final sourceY = (h * stepY).round();
+        final sourceX = (w * stepX).round().clamp(0, width - 1);
+        final sourceY = (h * stepY).round().clamp(0, height - 1);
         final index = sourceY * width + sourceX;
         
         if (index < bytes.length) {
@@ -162,8 +172,8 @@ class LiveDetectionService {
     }
   }
 
-  List<Map<String, dynamic>> _processOutputToMap(int imageWidth, int imageHeight) {
-    List<Map<String, dynamic>> results = [];
+  List<Map<String, dynamic>> _processOutput(int imageWidth, int imageHeight) {
+    final results = <Map<String, dynamic>>[];
     
     try {
       List<List<double>> detections;
@@ -176,36 +186,39 @@ class LiveDetectionService {
 
       for (final det in detections.take(50)) {
         if (det.length >= 6) {
+          final xCenter = det[0];
+          final yCenter = det[1];
+          final width = det[2];
+          final height = det[3];
           final confidence = det[4];
           final classId = det[5].round();
           
-          if (confidence > 0.6 && classId >= 0 && classId < _labels.length) {
-            final xCenter = det[0];
-            final yCenter = det[1];
-            final width = det[2];
-            final height = det[3];
-            
+          if (confidence > 0.5 && classId >= 0 && classId < _labels.length) {
             final x = (xCenter - width / 2) * imageWidth;
             final y = (yCenter - height / 2) * imageHeight;
             final w = width * imageWidth;
             final h = height * imageHeight;
             
-            results.add({
-              'label': _labels[classId],
-              'confidence': confidence,
-              'classIndex': classId,
-              'x': x,
-              'y': y,
-              'width': w,
-              'height': h,
-            });
+            if (x >= 0 && y >= 0 && w > 10 && h > 10) {
+              results.add({
+                'label': _labels[classId],
+                'confidence': confidence,
+                'classIndex': classId,
+                'x': x.clamp(0.0, imageWidth.toDouble()),
+                'y': y.clamp(0.0, imageHeight.toDouble()),
+                'width': w.clamp(10.0, imageWidth.toDouble()),
+                'height': h.clamp(10.0, imageHeight.toDouble()),
+              });
+            }
           }
         }
       }
 
       results.sort((a, b) => (b['confidence'] as double).compareTo(a['confidence'] as double));
       return results.take(3).toList();
+      
     } catch (e) {
+      print('Error processing output: $e');
       return [];
     }
   }
@@ -218,7 +231,9 @@ class LiveDetectionService {
       _labels.clear();
       _reusableInput = null;
       _reusableOutput = null;
+      print('Live detection service disposed');
     } catch (e) {
+      print('Error disposing live detection service: $e');
     }
   }
 }

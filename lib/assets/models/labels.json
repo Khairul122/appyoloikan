@@ -1,10 +1,11 @@
 {
-  "ikan": [
-    "ikan_baramundi",
-    "ikan_belanak_merah",
-    "ikan_cakalang",
-    "ikan_kakap_putih",
-    "ikan_kembung",
-    "ikan_sarden"
-  ]
+  "names": {
+    "0": "ikan_baramundi",
+    "1": "ikan_belanak_merah",
+    "2": "ikan_cakalang",
+    "3": "ikan_kakap_putih",
+    "4": "ikan_kembung",
+    "5": "ikan_sarden"
+  },
+  "nc": 6
 }

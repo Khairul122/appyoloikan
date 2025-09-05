@@ -26,7 +26,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
     }
     detectionController = Get.find<LiveDetectionController>();
     
-    _initializeDetection();
+    _initializeCamera();
   }
 
   @override
@@ -49,20 +49,20 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
     
     if (state == AppLifecycleState.paused) {
       detectionController.stopDetection();
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeCamera();
     }
   }
 
-  void _initializeDetection() async {
+  void _initializeCamera() async {
     try {
       if (_isDisposed) return;
       
-      await detectionController.initializeModel();
-      
-      if (!_isDisposed && !cameraController.isCameraInitialized.value) {
+      if (!cameraController.isCameraInitialized.value) {
         await cameraController.initializeCamera();
       }
     } catch (e) {
-      print('Initialization error: $e');
+      print('Camera initialization error: $e');
     }
   }
 
@@ -72,12 +72,11 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
     try {
       detectionController.stopDetection();
       Future.delayed(Duration(milliseconds: 200), () {
-        if (!_isDisposed && mounted && Get.context != null) {
+        if (!_isDisposed && mounted) {
           Get.back();
         }
       });
     } catch (e) {
-      print('Error going back: $e');
       if (!_isDisposed && mounted) {
         Navigator.of(context).pop();
       }
@@ -114,7 +113,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
         return _buildLoadingView();
       }
 
-      if (!detectionController.isModelLoaded.value) {
+      if (!detectionController.isReady) {
         return _buildModelErrorView();
       }
 
@@ -146,15 +145,18 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
           Icon(Icons.error, color: Colors.red, size: 64),
           SizedBox(height: 16),
           Text(
-            'Model Loading Failed',
+            'Detection Model Error',
             style: TextStyle(color: Colors.white, fontSize: 18),
           ),
           SizedBox(height: 8),
-          Text(
-            detectionController.errorMessage.value,
-            style: TextStyle(color: Colors.white70),
-            textAlign: TextAlign.center,
-          ),
+          Obx(() => Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              detectionController.errorMessage.value,
+              style: TextStyle(color: Colors.white70),
+              textAlign: TextAlign.center,
+            ),
+          )),
           SizedBox(height: 16),
           ElevatedButton(
             onPressed: _safeGoBack,
@@ -168,12 +170,10 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
   Widget _buildCameraView() {
     return Stack(
       children: [
-        // Camera Preview
         Positioned.fill(
           child: CameraPreview(cameraController.cameraController!),
         ),
         
-        // Info Panel
         Positioned(
           top: 20,
           left: 16,
@@ -181,12 +181,10 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
           child: _buildInfoPanel(),
         ),
         
-        // Detection Overlay
         Positioned.fill(
           child: _buildDetectionOverlay(),
         ),
         
-        // Controls
         Positioned(
           bottom: 40,
           left: 0,
@@ -252,7 +250,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
             if (detectionController.hasDetections) ...[
               SizedBox(height: 12),
               Text(
-                'Detections:',
+                'Detections (${detectionController.detectionsCount}):',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -317,7 +315,14 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.search, color: Colors.orange, size: 16),
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                      ),
+                    ),
                     SizedBox(width: 8),
                     Text(
                       'Searching for fish...',
@@ -340,7 +345,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
       }
 
       return CustomPaint(
-        painter: _DetectionPainter(detectionController.detectionResults),
+        painter: _SimpleDetectionPainter(detectionController.detectionResults),
         child: Container(),
       );
     });
@@ -351,7 +356,6 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Clear button with unique hero tag
           FloatingActionButton(
             mini: true,
             heroTag: "clear_detection_btn",
@@ -362,7 +366,6 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
           
           SizedBox(width: 20),
           
-          // Start/Stop button with unique hero tag
           Obx(() => FloatingActionButton.extended(
             heroTag: "toggle_detection_btn",
             onPressed: _toggleDetection,
@@ -390,8 +393,8 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
   void _toggleDetection() {
     if (_isDisposed) return;
     
-    if (!detectionController.isModelLoaded.value) {
-      Get.snackbar('Error', 'Model not loaded');
+    if (!detectionController.isReady) {
+      Get.snackbar('Error', 'Detection not ready');
       return;
     }
 
@@ -407,16 +410,16 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
         detectionController.startDetection(cameraController.cameraController!);
       }
     } catch (e) {
-      print('Toggle detection error: $e');
       Get.snackbar('Error', 'Failed to toggle detection');
+      print('Toggle detection error: $e');
     }
   }
 }
 
-class _DetectionPainter extends CustomPainter {
+class _SimpleDetectionPainter extends CustomPainter {
   final List<dynamic> detections;
 
-  _DetectionPainter(this.detections);
+  _SimpleDetectionPainter(this.detections);
 
   @override
   void paint(Canvas canvas, Size size) {
