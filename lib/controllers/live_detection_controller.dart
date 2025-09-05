@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:camera/camera.dart';
 import 'package:get/get.dart';
 import '../models/detection_result.dart';
 import '../services/live_detection_service.dart';
 import '../utils/constants.dart';
 import 'dart:ui' show Size;
+import 'dart:isolate';
 
 class LiveDetectionController extends GetxController {
   final LiveDetectionService _detectionService = LiveDetectionService.instance;
@@ -21,10 +23,12 @@ class LiveDetectionController extends GetxController {
   CameraController? _cameraController;
   int _frameCount = 0;
   int _processedFrames = 0;
-  int _droppedFrames = 0;
-  bool _isProcessing = false;
-
   int _frameCounter = 0;
+  
+  final Queue<CameraImage> _frameQueue = Queue<CameraImage>();
+  bool _isProcessingFrame = false;
+  Timer? _processingTimer;
+  Completer<void>? _stopCompleter;
 
   @override
   void onInit() {
@@ -34,6 +38,7 @@ class LiveDetectionController extends GetxController {
 
   Future<void> _loadModel() async {
     try {
+      isModelLoaded.value = false;
       final success = await _detectionService.loadModel();
       if (success) {
         isModelLoaded.value = true;
@@ -62,21 +67,26 @@ class LiveDetectionController extends GetxController {
         previewSize = Size(ps.width, ps.height);
       }
       
+      _resetCounters();
       isDetectionActive.value = true;
       errorMessage.value = '';
-      _frameCount = 0;
-      _processedFrames = 0;
-      _droppedFrames = 0;
-      _frameCounter = 0;
-      _isProcessing = false;
       currentDetection.value = null;
 
       _startFpsCounter();
+      _startProcessingTimer();
       await _startImageStream();
     } catch (e) {
       errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
       isDetectionActive.value = false;
     }
+  }
+
+  void _resetCounters() {
+    _frameCount = 0;
+    _processedFrames = 0;
+    _frameCounter = 0;
+    _isProcessingFrame = false;
+    _frameQueue.clear();
   }
 
   Future<void> _startImageStream() async {
@@ -85,34 +95,56 @@ class LiveDetectionController extends GetxController {
     try {
       if (_cameraController!.value.isStreamingImages) {
         await _cameraController!.stopImageStream();
-        await Future.delayed(Duration(milliseconds: 50));
+        await Future.delayed(Duration(milliseconds: 100));
       }
 
       await _cameraController!.startImageStream(_onFrame);
     } catch (e) {
       errorMessage.value = '${AppConstants.errorCameraNotAvailable}: $e';
-      isDetectionActive.value = false;
+      await stopDetection();
     }
   }
 
-  void _onFrame(CameraImage cameraImage) async {
-    if (!isDetectionActive.value || _isProcessing) return;
+  void _onFrame(CameraImage cameraImage) {
+    if (!isDetectionActive.value) return;
 
     _frameCount++;
     _frameCounter++;
 
     if (_frameCounter % AppConstants.frameStride != 0) return;
 
-    _processFrame(cameraImage);
+    if (_frameQueue.length < 2) {
+      _frameQueue.add(cameraImage);
+    } else {
+      if (_frameQueue.isNotEmpty) {
+        _frameQueue.removeFirst();
+      }
+      _frameQueue.add(cameraImage);
+    }
   }
 
-  void _processFrame(CameraImage cameraImage) async {
-    if (_isProcessing || !isDetectionActive.value) return;
+  void _startProcessingTimer() {
+    _processingTimer?.cancel();
+    _processingTimer = Timer.periodic(Duration(milliseconds: 100), (timer) {
+      if (!isDetectionActive.value) {
+        timer.cancel();
+        return;
+      }
+      _processQueuedFrames();
+    });
+  }
 
-    _isProcessing = true;
+  void _processQueuedFrames() async {
+    if (_isProcessingFrame || _frameQueue.isEmpty || !isDetectionActive.value) {
+      return;
+    }
+
+    _isProcessingFrame = true;
     isDetecting.value = true;
 
     try {
+      final cameraImage = _frameQueue.removeFirst();
+      
       final result = await _detectionService.detectFromCameraData({
         'width': cameraImage.width,
         'height': cameraImage.height,
@@ -150,47 +182,60 @@ class LiveDetectionController extends GetxController {
       }
     } finally {
       isDetecting.value = false;
-      _isProcessing = false;
+      _isProcessingFrame = false;
     }
   }
 
   Future<void> stopDetection() async {
-    isDetectionActive.value = false;
-    isDetecting.value = false;
-    _isProcessing = false;
-
-    try {
-      if (_cameraController != null && _cameraController!.value.isStreamingImages) {
-        await _cameraController!.stopImageStream();
-        await Future.delayed(Duration(milliseconds: 50));
-      }
-    } catch (e) {
-      print('Error stopping image stream: $e');
+    if (!isDetectionActive.value && _stopCompleter == null) return;
+    
+    if (_stopCompleter != null) {
+      return _stopCompleter!.future;
     }
+    
+    _stopCompleter = Completer<void>();
+    
+    try {
+      isDetectionActive.value = false;
+      isDetecting.value = false;
+      _isProcessingFrame = false;
 
-    _fpsTimer?.cancel();
-    _fpsTimer = null;
-    _cameraController = null;
+      _processingTimer?.cancel();
+      _processingTimer = null;
 
-    currentDetection.value = null;
-    fps.value = 0;
-    _frameCount = 0;
-    _processedFrames = 0;
-    _frameCounter = 0;
-    _droppedFrames = 0;
+      _frameQueue.clear();
+
+      if (_cameraController != null && _cameraController!.value.isStreamingImages) {
+        try {
+          await _cameraController!.stopImageStream();
+          await Future.delayed(Duration(milliseconds: 100));
+        } catch (e) {
+          print('Error stopping image stream: $e');
+        }
+      }
+
+      _fpsTimer?.cancel();
+      _fpsTimer = null;
+      _cameraController = null;
+
+      currentDetection.value = null;
+      fps.value = 0;
+      _resetCounters();
+      
+      _stopCompleter!.complete();
+    } catch (e) {
+      _stopCompleter!.completeError(e);
+    } finally {
+      _stopCompleter = null;
+    }
   }
 
   void _startFpsCounter() {
-    _frameCount = 0;
-    _processedFrames = 0;
-    _droppedFrames = 0;
     _fpsTimer?.cancel();
     _fpsTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       if (isDetectionActive.value) {
         fps.value = _processedFrames;
-        _frameCount = 0;
         _processedFrames = 0;
-        _droppedFrames = 0;
       } else {
         timer.cancel();
       }
@@ -201,11 +246,11 @@ class LiveDetectionController extends GetxController {
     currentDetection.value = null;
   }
 
-  void toggleDetection() {
+  Future<void> toggleDetection() async {
     if (isDetectionActive.value) {
-      stopDetection();
+      await stopDetection();
     } else if (_cameraController != null) {
-      startDetection(_cameraController!);
+      await startDetection(_cameraController!);
     }
   }
 

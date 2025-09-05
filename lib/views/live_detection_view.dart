@@ -13,10 +13,14 @@ class LiveDetectionView extends StatefulWidget {
 }
 
 class _LiveDetectionViewState extends State<LiveDetectionView> 
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   
   final CameraControllerX cameraController = Get.find<CameraControllerX>();
   late final LiveDetectionController detectionController;
+  bool _isInitializing = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -44,25 +48,41 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       detectionController.stopDetection();
     } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
+      if (mounted) {
+        Future.delayed(Duration(milliseconds: 500), () {
+          if (mounted) {
+            _initializeCamera();
+          }
+        });
+      }
     }
   }
 
-  void _initializeCamera() async {
+  Future<void> _initializeCamera() async {
+    if (_isInitializing) return;
+    
+    _isInitializing = true;
     try {
       if (!cameraController.isCameraInitialized.value) {
         await cameraController.initializeCamera();
+        await Future.delayed(Duration(milliseconds: 200));
       }
     } catch (e) {
       print('Camera initialization error: $e');
+    } finally {
+      if (mounted) {
+        _isInitializing = false;
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: _buildAppBar(),
@@ -78,8 +98,8 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
       title: Text('Live Detection'),
       leading: IconButton(
         icon: Icon(Icons.arrow_back),
-        onPressed: () {
-          detectionController.stopDetection();
+        onPressed: () async {
+          await detectionController.stopDetection();
           Get.back();
         },
       ),
@@ -88,7 +108,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
 
   Widget _buildBody() {
     return Obx(() {
-      if (!cameraController.isCameraInitialized.value) {
+      if (!cameraController.isCameraInitialized.value || _isInitializing) {
         return _buildLoadingView();
       }
 
@@ -196,7 +216,8 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
   }
 
   Widget _buildStatusIndicator() {
-    return Container(
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 300),
       width: 10,
       height: 10,
       decoration: BoxDecoration(
@@ -204,17 +225,24 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
             ? Colors.green 
             : Colors.red,
         shape: BoxShape.circle,
+        boxShadow: detectionController.isDetectionActive.value 
+            ? [BoxShadow(color: Colors.green, blurRadius: 4, spreadRadius: 1)]
+            : null,
       ),
     );
   }
 
   Widget _buildStatusText() {
-    return Text(
-      detectionController.isDetectionActive.value ? 'DETECTING' : 'STOPPED',
-      style: TextStyle(
-        color: Colors.white, 
-        fontWeight: FontWeight.bold,
-        fontSize: 14,
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: 300),
+      child: Text(
+        detectionController.isDetectionActive.value ? 'DETECTING' : 'STOPPED',
+        key: ValueKey(detectionController.isDetectionActive.value),
+        style: TextStyle(
+          color: Colors.white, 
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
       ),
     );
   }
@@ -226,14 +254,14 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
         color: Colors.blue.withOpacity(0.7),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(
+      child: Obx(() => Text(
         '${detectionController.fps.value} FPS',
         style: TextStyle(
           color: Colors.white,
           fontSize: 12,
           fontWeight: FontWeight.bold,
         ),
-      ),
+      )),
     );
   }
 
@@ -245,19 +273,21 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
       child: Obx(() {
         final detection = detectionController.currentDetection.value;
         
-        if (detection == null) {
-          return detectionController.isDetectionActive.value 
-            ? _buildSearchingCard() 
-            : SizedBox.shrink();
-        }
-
-        return _buildDetectionFoundCard(detection);
+        return AnimatedSwitcher(
+          duration: Duration(milliseconds: 300),
+          child: detection == null 
+            ? (detectionController.isDetectionActive.value 
+                ? _buildSearchingCard() 
+                : SizedBox.shrink())
+            : _buildDetectionFoundCard(detection),
+        );
       }),
     );
   }
 
   Widget _buildSearchingCard() {
     return Container(
+      key: ValueKey('searching'),
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.orange.withOpacity(0.8),
@@ -292,6 +322,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
 
   Widget _buildDetectionFoundCard(DetectionResult detection) {
     return Container(
+      key: ValueKey('detection_${detection.label}'),
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.green.withOpacity(0.9),
@@ -375,13 +406,14 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
       child: Obx(() {
         final detection = detectionController.currentDetection.value;
         
-        if (detection == null) {
-          return SizedBox.shrink();
-        }
-
-        return CustomPaint(
-          painter: DetectionPainter(detection: detection),
-          child: Container(),
+        return AnimatedSwitcher(
+          duration: Duration(milliseconds: 200),
+          child: detection == null
+              ? SizedBox.shrink()
+              : CustomPaint(
+                  painter: DetectionPainter(detection: detection),
+                  child: Container(),
+                ),
         );
       }),
     );
@@ -437,7 +469,7 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
     ));
   }
 
-  void _toggleDetection() {
+  Future<void> _toggleDetection() async {
     if (!detectionController.isReady) {
       Get.snackbar('Error', AppConstants.errorModelNotLoaded);
       return;
@@ -450,11 +482,11 @@ class _LiveDetectionViewState extends State<LiveDetectionView>
 
     try {
       if (detectionController.isDetectionActive.value) {
-        detectionController.stopDetection();
+        await detectionController.stopDetection();
       } else {
         final cameraControllerInstance = cameraController.cameraController;
         if (cameraControllerInstance != null) {
-          detectionController.startDetection(cameraControllerInstance);
+          await detectionController.startDetection(cameraControllerInstance);
         } else {
           Get.snackbar('Error', 'Camera controller is not initialized');
         }
