@@ -1,318 +1,208 @@
+import 'dart:async';
 import 'dart:typed_data';
+import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:image/image.dart' as img;
+import '../models/detection_result.dart';
 import '../utils/constants.dart';
-import 'dart:developer' as developer;
+import 'inference_isolate.dart';
 
 class LiveDetectionService {
-  static LiveDetectionService? _instance;
-  static LiveDetectionService get instance =>
-      _instance ??= LiveDetectionService._();
+  static final LiveDetectionService _instance = LiveDetectionService._internal();
+  factory LiveDetectionService() => _instance;
+  LiveDetectionService._internal();
 
-  LiveDetectionService._();
-
-  Interpreter? _interpreter;
+  StreamController<List<DetectionResult>>? _detectionController;
+  StreamController<CameraImage>? _imageController;
+  StreamSubscription? _imageSubscription;
+  
+  bool _isProcessing = false;
+  bool _isActive = false;
+  int _frameSkipCount = 0;
+  int _totalFrameCount = 0;
+  DateTime _lastInferenceTime = DateTime.now();
   List<String> _labels = [];
-  bool _isModelLoaded = false;
-  List<int> _inputShape = [];
-  List<int> _outputShape = [];
+  
+  static const int _frameSkipThreshold = 5;
+  static const int _maxInferencePerSecond = 8;
 
-  List<List<List<List<double>>>>? _reusableInput;
-  dynamic _reusableOutput;
-  Uint8List? _rgbBytes;
-  late int _modelInputWidth;
-  late int _modelInputHeight;
+  Stream<List<DetectionResult>> get detectionStream {
+    _detectionController ??= StreamController<List<DetectionResult>>.broadcast();
+    return _detectionController!.stream;
+  }
 
-  bool get isModelLoaded => _isModelLoaded;
+  Future<void> initialize() async {
+    await InferenceIsolate.initialize();
+    await _loadLabels();
+    
+    _imageController = StreamController<CameraImage>.broadcast();
+    _detectionController ??= StreamController<List<DetectionResult>>.broadcast();
+    
+    _imageSubscription = _imageController!.stream.listen(_processImageFrame);
+    _isActive = true;
+  }
 
-  Future<bool> loadModel() async {
+  Future<void> _loadLabels() async {
     try {
-      if (_isModelLoaded) return true;
-
-      _labels = await AppConstants.loadLabels();
-
-      final options = InterpreterOptions()
-        ..threads = AppConstants.threads
-        ..useNnApiForAndroid = false;
-
-      _interpreter =
-          await Interpreter.fromAsset(AppConstants.modelPath, options: options);
-
-      final inputTensor = _interpreter!.getInputTensor(0);
-      final outputTensor = _interpreter!.getOutputTensor(0);
-      _inputShape = inputTensor.shape;
-      _outputShape = outputTensor.shape;
-
-      _modelInputWidth = _inputShape[2];
-      _modelInputHeight = _inputShape[1];
-
-      _prepareReusableTensors();
-      _isModelLoaded = true;
-
-      developer.log(
-          'Model loaded successfully. Input shape: $_inputShape, Output shape: $_outputShape');
-      return true;
+      final labelsData = await rootBundle.loadString('lib/assets/models/labels.txt');
+      _labels = labelsData.split('\n').where((label) => label.isNotEmpty).toList();
     } catch (e) {
-      _isModelLoaded = false;
-      developer.log('Error loading model: $e', error: e);
-      return false;
+      _labels = AppConstants.fishClasses;
     }
   }
 
-  void _prepareReusableTensors() {
+  void addImageFrame(CameraImage image) {
+    if (!_isActive || _imageController == null) return;
+    
+    _totalFrameCount++;
+    
+    final now = DateTime.now();
+    final timeSinceLastInference = now.difference(_lastInferenceTime).inMilliseconds;
+    final minIntervalMs = 1000 ~/ _maxInferencePerSecond;
+    
+    if (_isProcessing || timeSinceLastInference < minIntervalMs) {
+      return;
+    }
+    
+    _frameSkipCount++;
+    if (_frameSkipCount >= _frameSkipThreshold) {
+      _frameSkipCount = 0;
+      _lastInferenceTime = now;
+      _imageController!.add(image);
+    }
+  }
+
+  Future<void> _processImageFrame(CameraImage cameraImage) async {
+    if (_isProcessing || !_isActive) return;
+    
+    _isProcessing = true;
+    
     try {
-      final batchSize = _inputShape[0];
-      final height = _inputShape[1];
-      final width = _inputShape[2];
-      final channels = _inputShape[3];
-
-      _reusableInput = List.generate(
-          batchSize,
-          (_) => List.generate(height,
-              (_) => List.generate(width, (_) => List.filled(channels, 0.0))));
-
-      _reusableOutput = _allocTensorByShape(_outputShape);
-      _rgbBytes = Uint8List(_modelInputWidth * _modelInputHeight * 3);
+      final imageBytes = await _convertCameraImageToJpeg(cameraImage);
+      
+      final results = await InferenceIsolate.runInference(
+        imageBytes: imageBytes,
+        labels: _labels,
+        isLiveDetection: true,
+      );
+      
+      final filteredResults = results.where(
+        (result) => result.confidence >= AppConstants.confidenceThreshold
+      ).toList();
+      
+      if (_isActive && _detectionController != null) {
+        _detectionController!.add(filteredResults);
+      }
     } catch (e) {
-      developer.log('Error preparing tensors: $e', error: e);
-      throw Exception('Failed to prepare tensors: $e');
+      debugPrint('Detection processing error: $e');
+      if (_isActive && _detectionController != null) {
+        _detectionController!.add([]);
+      }
+    } finally {
+      _isProcessing = false;
     }
   }
 
-  dynamic _allocTensorByShape(List<int> shape) {
+  Future<Uint8List> _convertCameraImageToJpeg(CameraImage cameraImage) async {
     try {
-      if (shape.isEmpty) return 0.0;
-      if (shape.length == 1) {
-        return List<double>.filled(shape[0], 0.0);
+      if (cameraImage.format.group == ImageFormatGroup.yuv420) {
+        return _convertYUV420ToJpeg(cameraImage);
+      } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+        return _convertBGRA8888ToJpeg(cameraImage);
+      } else {
+        throw UnsupportedError('Unsupported image format: ${cameraImage.format.group}');
       }
-      return List.generate(
-          shape[0], (_) => _allocTensorByShape(shape.sublist(1)));
     } catch (e) {
-      developer.log('Error allocating tensor: $e', error: e);
-      throw Exception('Failed to allocate tensor: $e');
+      debugPrint('Image conversion error: $e');
+      rethrow;
     }
   }
 
-  Future<Map<String, dynamic>?> detectFromCameraData(
-      Map<String, dynamic> data) async {
-    if (!_isModelLoaded || _interpreter == null) {
-      developer.log('Model not loaded or interpreter null');
-      return null;
-    }
-
-    try {
-      final width = (data['width'] as int?) ?? 0;
-      final height = (data['height'] as int?) ?? 0;
-      final planes = data['planes'] as List<dynamic>?;
-
-      if (planes == null || planes.isEmpty) {
-        developer.log('No planes provided in camera data');
-        return null;
-      }
-
-      if (width <= 0 || height <= 0) {
-        developer.log('Invalid width or height: width=$width, height=$height');
-        return null;
-      }
-
-      final firstPlane = planes[0];
-      if (firstPlane == null) {
-        developer.log('First plane is null');
-        return null;
-      }
-
-      final yBytes = firstPlane['bytes'] as Uint8List?;
-      if (yBytes == null || yBytes.isEmpty) {
-        developer.log('Y-plane bytes are null or empty');
-        return null;
-      }
-
-      _fillInputTensorOptimized(yBytes, width, height);
-
-      _interpreter!.run(_reusableInput as Object, _reusableOutput);
-
-      return _processSingleOutputOptimized(width, height);
-    } catch (e, stackTrace) {
-      developer.log('Error during detection: $e',
-          error: e, stackTrace: stackTrace);
-      return null;
-    }
-  }
-
-  void _fillInputTensorOptimized(Uint8List bytes, int width, int height) {
-    try {
-      if (_inputShape.isEmpty || _reusableInput == null) {
-        throw Exception('Input shape or tensor not initialized');
-      }
-
-      final channels = _inputShape[3];
-      final stepX = width / _modelInputWidth;
-      final stepY = height / _modelInputHeight;
-
-      if (channels <= 0) {
-        throw Exception('Invalid channel count: $channels');
-      }
-
-      // Reset tensor
-      for (int h = 0; h < _modelInputHeight; h++) {
-        for (int w = 0; w < _modelInputWidth; w++) {
-          for (int c = 0; c < channels; c++) {
-            _reusableInput![0][h][w][c] = 0.0;
-          }
-        }
-      }
-
-      for (int h = 0; h < _modelInputHeight; h++) {
-        final sourceY = (h * stepY).round().clamp(0, height - 1);
-        final rowStart = sourceY * width;
-
-        for (int w = 0; w < _modelInputWidth; w++) {
-          final sourceX = (w * stepX).round().clamp(0, width - 1);
-          final index = rowStart + sourceX;
-
-          if (index >= 0 && index < bytes.length) {
-            final normalizedPixel = (bytes[index] & 0xFF) / 255.0;
-
-            if (channels == 3) {
-              _reusableInput![0][h][w][0] = normalizedPixel;
-              _reusableInput![0][h][w][1] = normalizedPixel;
-              _reusableInput![0][h][w][2] = normalizedPixel;
-            } else {
-              _reusableInput![0][h][w][0] = normalizedPixel;
-            }
-          } else {
-            _reusableInput![0][h][w][0] = 0.0;
-            if (channels == 3) {
-              _reusableInput![0][h][w][1] = 0.0;
-              _reusableInput![0][h][w][2] = 0.0;
-            }
-          }
-        }
-      }
-    } catch (e, stackTrace) {
-      developer.log('Error filling input tensor: $e',
-          error: e, stackTrace: stackTrace);
-      throw Exception('Failed to fill input tensor: $e');
-    }
-  }
-
-  Map<String, dynamic>? _processSingleOutputOptimized(
-      int imageWidth, int imageHeight) {
-    try {
-      dynamic detections = _reusableOutput;
-
-      if (_reusableOutput == null) {
-        developer.log('Reusable output is null');
-        return null;
-      }
-
-      if (_reusableOutput is List && _reusableOutput.isNotEmpty) {
-        detections = _reusableOutput[0];
-      }
-
-      if (detections is! List) {
-        developer.log('Invalid detection format: ${detections.runtimeType}');
-        return null;
-      }
-
-      Map<String, dynamic>? bestDetection;
-      double bestConfidence = AppConstants.confidenceThreshold;
-
-      final maxDetections = detections.length > 100 ? 100 : detections.length;
-
-      for (int i = 0; i < maxDetections; i++) {
-        final det = detections[i];
-
-        if (det is! List || det.length < 6) {
+  Uint8List _convertYUV420ToJpeg(CameraImage cameraImage) {
+    final width = cameraImage.width;
+    final height = cameraImage.height;
+    
+    final yPlane = cameraImage.planes[0];
+    final uPlane = cameraImage.planes[1];
+    final vPlane = cameraImage.planes[2];
+    
+    final yBuffer = yPlane.bytes;
+    final uBuffer = uPlane.bytes;
+    final vBuffer = vPlane.bytes;
+    
+    final image = img.Image(width: width, height: height);
+    
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final yIndex = y * yPlane.bytesPerRow + x;
+        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
+        
+        if (yIndex >= yBuffer.length || uvIndex >= uBuffer.length || uvIndex >= vBuffer.length) {
           continue;
         }
-
-        try {
-          final confidence = (det[4] as num).toDouble();
-
-          if (confidence < bestConfidence ||
-              confidence.isNaN ||
-              confidence.isInfinite) {
-            continue;
-          }
-
-          final classId = (det[5] as num).round();
-
-          if (classId < 0 || classId >= _labels.length) {
-            continue;
-          }
-
-          final xCenter = (det[0] as num).toDouble();
-          final yCenter = (det[1] as num).toDouble();
-          final width = (det[2] as num).toDouble();
-          final height = (det[3] as num).toDouble();
-
-          if (xCenter.isNaN ||
-              yCenter.isNaN ||
-              width.isNaN ||
-              height.isNaN ||
-              xCenter.isInfinite ||
-              yCenter.isInfinite ||
-              width.isInfinite ||
-              height.isInfinite ||
-              xCenter < 0 ||
-              xCenter > 1 ||
-              yCenter < 0 ||
-              yCenter > 1 ||
-              width <= 0 ||
-              height <= 0 ||
-              width > 1 ||
-              height > 1) {
-            continue;
-          }
-
-          final x = (xCenter - width / 2).clamp(0.0, 1.0);
-          final y = (yCenter - height / 2).clamp(0.0, 1.0);
-          final w = width.clamp(0.0, 1.0 - x);
-          final h = height.clamp(0.0, 1.0 - y);
-
-          bestDetection = {
-            'label': _labels[classId],
-            'confidence': confidence,
-            'classIndex': classId,
-            'x': x,
-            'y': y,
-            'width': w,
-            'height': h,
-          };
-          bestConfidence = confidence;
-        } catch (e) {
-          developer.log('Error processing detection $i: $e', error: e);
-          continue;
-        }
+        
+        final yValue = yBuffer[yIndex].toInt();
+        final uValue = uBuffer[uvIndex].toInt();
+        final vValue = vBuffer[uvIndex].toInt();
+        
+        final r = (yValue + 1.402 * (vValue - 128)).clamp(0, 255).toInt();
+        final g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).clamp(0, 255).toInt();
+        final b = (yValue + 1.772 * (uValue - 128)).clamp(0, 255).toInt();
+        
+        image.setPixelRgb(x, y, r, g, b);
       }
-
-      if (bestDetection != null) {
-        developer.log(
-            'Best detection found: ${bestDetection['label']} (${bestDetection['confidence']})');
-      }
-
-      return bestDetection;
-    } catch (e, stackTrace) {
-      developer.log('Error processing output: $e',
-          error: e, stackTrace: stackTrace);
-      return null;
     }
+    
+    return Uint8List.fromList(img.encodeJpg(image));
+  }
+
+  Uint8List _convertBGRA8888ToJpeg(CameraImage cameraImage) {
+    final bytes = cameraImage.planes[0].bytes;
+    final width = cameraImage.width;
+    final height = cameraImage.height;
+    
+    final image = img.Image(width: width, height: height);
+    
+    for (int i = 0, pixelIndex = 0; i < bytes.length && pixelIndex < width * height; i += 4, pixelIndex++) {
+      final x = pixelIndex % width;
+      final y = pixelIndex ~/ width;
+      
+      final r = bytes[i + 2];
+      final g = bytes[i + 1];
+      final b = bytes[i];
+      
+      image.setPixelRgb(x, y, r, g, b);
+    }
+    
+    return Uint8List.fromList(img.encodeJpg(image));
+  }
+
+  void pause() {
+    _isActive = false;
+  }
+
+  void resume() {
+    _isActive = true;
+    _frameSkipCount = 0;
   }
 
   void dispose() {
-    try {
-      _interpreter?.close();
-      _interpreter = null;
-      _isModelLoaded = false;
-      _labels.clear();
-      _reusableInput = null;
-      _reusableOutput = null;
-      _rgbBytes = null;
-
-      developer.log('LiveDetectionService disposed successfully');
-    } catch (e) {
-      developer.log('Error disposing service: $e', error: e);
-    }
+    _isActive = false;
+    _isProcessing = false;
+    
+    _imageSubscription?.cancel();
+    _imageSubscription = null;
+    
+    _imageController?.close();
+    _imageController = null;
+    
+    _detectionController?.close();
+    _detectionController = null;
+    
+    InferenceIsolate.dispose();
+    
+    _frameSkipCount = 0;
+    _totalFrameCount = 0;
   }
 }

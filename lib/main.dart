@@ -1,187 +1,103 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:camera/camera.dart';
 import 'routes/app_routes.dart';
 import 'utils/app_colors.dart';
-import 'controllers/fish_controller.dart';
-import 'controllers/camera_controller.dart';
-import 'controllers/live_detection_controller.dart';
-
-List<CameraDescription> cameras = [];
+import 'utils/constants.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: AppColors.white,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
-  );
   
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  
-  try {
-    cameras = await availableCameras();
-  } catch (e) {
-    print('Error initializing cameras: $e');
-  }
-  
-  runApp(const MyApp());
+
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: AppColors.surface,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+
+  runApp(const FishDetectorApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+class FishDetectorApp extends StatelessWidget {
+  const FishDetectorApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
-      title: 'Fish Classification',
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
-      
       theme: ThemeData(
-        primarySwatch: MaterialColor(0xFF2196F3, const {
-          50: Color(0xFFE3F2FD),
-          100: Color(0xFFBBDEFB),
-          200: Color(0xFF90CAF9),
-          300: Color(0xFF64B5F6),
-          400: Color(0xFF42A5F5),
-          500: AppColors.primary,
-          600: AppColors.primaryDark,
-          700: Color(0xFF1565C0),
-          800: Color(0xFF0D47A1),
-          900: Color(0xFF0D47A1),
-        }),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.primary,
+          brightness: Brightness.light,
+        ),
         scaffoldBackgroundColor: AppColors.background,
-        fontFamily: 'Poppins',
-        
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.white,
-          elevation: 2,
+          foregroundColor: AppColors.surface,
+          elevation: 0,
           centerTitle: true,
-          titleTextStyle: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: AppColors.white,
-          ),
           systemOverlayStyle: SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
             statusBarIconBrightness: Brightness.light,
           ),
         ),
-        
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primary,
-            foregroundColor: AppColors.white,
-            minimumSize: const Size(double.infinity, 48),
+            foregroundColor: AppColors.surface,
+            minimumSize: const Size(double.infinity, AppConstants.buttonHeight),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppConstants.borderRadius),
             ),
-            textStyle: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
+            elevation: AppConstants.cardElevation,
           ),
         ),
-        
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            textStyle: const TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        
-        cardTheme: const CardThemeData(
-          color: AppColors.white,
-          elevation: 2,
+        cardTheme: CardThemeData(
+          color: AppColors.surface,
+          elevation: AppConstants.cardElevation,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderRadius: BorderRadius.circular(AppConstants.borderRadius),
           ),
-          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         ),
-        
-        inputDecorationTheme: const InputDecorationTheme(
+        inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: AppColors.grey100,
+          fillColor: AppColors.surface,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: AppColors.borderLight),
+            borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+            borderSide: const BorderSide(color: AppColors.border),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: AppColors.borderLight),
+            borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+            borderSide: const BorderSide(color: AppColors.border),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: AppColors.primary, width: 2),
+            borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+            borderSide: const BorderSide(color: AppColors.primary, width: 2),
           ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: AppColors.error),
-          ),
-          contentPadding: EdgeInsets.all(16),
-        ),
-        
-        dialogTheme: const DialogThemeData(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-          ),
-          titleTextStyle: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-          contentTextStyle: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 14,
-            color: AppColors.textSecondary,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
           ),
         ),
-        
-        bottomSheetTheme: const BottomSheetThemeData(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: AppColors.primary,
+          foregroundColor: AppColors.surface,
+          elevation: AppConstants.cardElevation,
         ),
-        
-        snackBarTheme: const SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-          ),
-          contentTextStyle: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        useMaterial3: true,
       ),
-      
       initialRoute: AppRoutes.splash,
       getPages: AppRoutes.routes,
-      
-      initialBinding: BindingsBuilder(() {
-        Get.put(FishController(), permanent: true);
-        Get.put(CameraControllerX(), permanent: true);
-        Get.put(LiveDetectionController(), permanent: true);
-      }),
+      defaultTransition: Transition.fade,
+      transitionDuration: AppConstants.animationDuration,
     );
   }
 }

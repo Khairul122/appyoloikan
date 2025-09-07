@@ -1,267 +1,163 @@
 import 'dart:async';
-import 'dart:collection';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import '../models/detection_result.dart';
 import '../services/live_detection_service.dart';
 import '../utils/constants.dart';
-import 'dart:ui' show Size;
-import 'dart:isolate';
 
 class LiveDetectionController extends GetxController {
-  final LiveDetectionService _detectionService = LiveDetectionService.instance;
+  CameraController? cameraController;
+  final LiveDetectionService _detectionService = LiveDetectionService();
   
-  Size? previewSize;
-  var isDetectionActive = false.obs;
-  var isDetecting = false.obs;
-  var currentDetection = Rxn<DetectionResult>();
-  var fps = 0.obs;
-  var errorMessage = ''.obs;
-  var isModelLoaded = false.obs;
+  final RxBool isInitialized = false.obs;
+  final RxBool isDetecting = false.obs;
+  final RxBool isFlashOn = false.obs;
+  final RxList<DetectionResult> detections = <DetectionResult>[].obs;
+  final RxString currentDetection = ''.obs;
+  final RxDouble currentConfidence = 0.0.obs;
+  final RxString error = ''.obs;
 
-  Timer? _fpsTimer;
-  CameraController? _cameraController;
-  int _frameCount = 0;
-  int _processedFrames = 0;
-  int _frameCounter = 0;
-  
-  final Queue<CameraImage> _frameQueue = Queue<CameraImage>();
-  bool _isProcessingFrame = false;
-  Timer? _processingTimer;
-  Completer<void>? _stopCompleter;
+  StreamSubscription<List<DetectionResult>>? _detectionSubscription;
 
   @override
   void onInit() {
     super.onInit();
-    _loadModel();
+    initializeCamera();
   }
 
-  Future<void> _loadModel() async {
+  Future<void> initializeCamera() async {
     try {
-      isModelLoaded.value = false;
-      final success = await _detectionService.loadModel();
-      if (success) {
-        isModelLoaded.value = true;
-        errorMessage.value = '';
-      } else {
-        isModelLoaded.value = false;
-        errorMessage.value = AppConstants.errorModelNotLoaded;
+      error.value = '';
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        throw Exception('No cameras available');
       }
-    } catch (e) {
-      isModelLoaded.value = false;
-      errorMessage.value = '${AppConstants.errorModelNotLoaded}: $e';
-    }
-  }
 
-  Future<void> startDetection(CameraController cameraController) async {
-    if (!isModelLoaded.value || isDetectionActive.value) {
-      return;
-    }
+      cameraController = CameraController(
+        cameras.first,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
 
-    try {
-      await stopDetection();
-
-      _cameraController = cameraController;
-      final ps = cameraController.value.previewSize;
-      if (ps != null) {
-        previewSize = Size(ps.width, ps.height);
-      }
+      await cameraController!.initialize();
+      await _detectionService.initialize();
       
-      _resetCounters();
-      isDetectionActive.value = true;
-      errorMessage.value = '';
-      currentDetection.value = null;
-
-      _startFpsCounter();
-      _startProcessingTimer();
-      await _startImageStream();
-    } catch (e) {
-      errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
-      isDetectionActive.value = false;
-    }
-  }
-
-  void _resetCounters() {
-    _frameCount = 0;
-    _processedFrames = 0;
-    _frameCounter = 0;
-    _isProcessingFrame = false;
-    _frameQueue.clear();
-  }
-
-  Future<void> _startImageStream() async {
-    if (_cameraController == null) return;
-
-    try {
-      if (_cameraController!.value.isStreamingImages) {
-        await _cameraController!.stopImageStream();
-        await Future.delayed(Duration(milliseconds: 100));
-      }
-
-      await _cameraController!.startImageStream(_onFrame);
-    } catch (e) {
-      errorMessage.value = '${AppConstants.errorCameraNotAvailable}: $e';
-      await stopDetection();
-    }
-  }
-
-  void _onFrame(CameraImage cameraImage) {
-    if (!isDetectionActive.value) return;
-
-    _frameCount++;
-    _frameCounter++;
-
-    if (_frameCounter % AppConstants.frameStride != 0) return;
-
-    if (_frameQueue.length < 2) {
-      _frameQueue.add(cameraImage);
-    } else {
-      if (_frameQueue.isNotEmpty) {
-        _frameQueue.removeFirst();
-      }
-      _frameQueue.add(cameraImage);
-    }
-  }
-
-  void _startProcessingTimer() {
-    _processingTimer?.cancel();
-    _processingTimer = Timer.periodic(Duration(milliseconds: 100), (timer) {
-      if (!isDetectionActive.value) {
-        timer.cancel();
-        return;
-      }
-      _processQueuedFrames();
-    });
-  }
-
-  void _processQueuedFrames() async {
-    if (_isProcessingFrame || _frameQueue.isEmpty || !isDetectionActive.value) {
-      return;
-    }
-
-    _isProcessingFrame = true;
-    isDetecting.value = true;
-
-    try {
-      final cameraImage = _frameQueue.removeFirst();
+      _setupDetectionListener();
       
-      final result = await _detectionService.detectFromCameraData({
-        'width': cameraImage.width,
-        'height': cameraImage.height,
-        'format': cameraImage.format.group.index,
-        'planes': cameraImage.planes
-            .map((plane) => {
-                  'bytes': plane.bytes,
-                  'bytesPerRow': plane.bytesPerRow,
-                  'bytesPerPixel': plane.bytesPerPixel,
-                })
-            .toList(),
-      });
+      isInitialized.value = true;
+      startDetection();
+    } catch (e) {
+      error.value = 'Camera initialization failed: $e';
+      debugPrint('Camera initialization error: $e');
+    }
+  }
 
-      if (isDetectionActive.value) {
-        if (result != null) {
-          final detection = DetectionResult(
-            label: result['label'] as String,
-            confidence: result['confidence'] as double,
-            classIndex: result['classIndex'] as int,
-            x: result['x'] as double,
-            y: result['y'] as double,
-            width: result['width'] as double,
-            height: result['height'] as double,
-          );
-
-          currentDetection.value = detection;
-          _processedFrames++;
+  void _setupDetectionListener() {
+    _detectionSubscription = _detectionService.detectionStream.listen(
+      (results) {
+        detections.value = results;
+        
+        if (results.isNotEmpty) {
+          final bestDetection = results.first;
+          currentDetection.value = bestDetection.className;
+          currentConfidence.value = bestDetection.confidence;
         } else {
-          currentDetection.value = null;
+          currentDetection.value = '';
+          currentConfidence.value = 0.0;
         }
-      }
+      },
+      onError: (e) {
+        debugPrint('Detection stream error: $e');
+        error.value = 'Detection error: $e';
+      },
+    );
+  }
+
+  void startDetection() {
+    if (!isInitialized.value) return;
+    if (cameraController!.value.isStreamingImages) return;
+
+    try {
+      cameraController!.startImageStream((CameraImage image) {
+        _detectionService.addImageFrame(image);
+      });
+      
+      _detectionService.resume();
+      isDetecting.value = true;
+      error.value = '';
     } catch (e) {
-      if (isDetectionActive.value) {
-        errorMessage.value = '${AppConstants.errorPredictionFailed}: $e';
-      }
-    } finally {
-      isDetecting.value = false;
-      _isProcessingFrame = false;
+      error.value = 'Failed to start detection: $e';
+      debugPrint('Start detection error: $e');
     }
   }
 
-  Future<void> stopDetection() async {
-    if (!isDetectionActive.value && _stopCompleter == null) return;
-    
-    if (_stopCompleter != null) {
-      return _stopCompleter!.future;
+  void stopDetection() {
+    if (cameraController?.value.isStreamingImages == true) {
+      cameraController?.stopImageStream();
     }
-    
-    _stopCompleter = Completer<void>();
+    _detectionService.pause();
+    isDetecting.value = false;
+  }
+
+  void pauseDetection() {
+    _detectionService.pause();
+    isDetecting.value = false;
+  }
+
+  void resumeDetection() {
+    if (isInitialized.value) {
+      _detectionService.resume();
+      if (!cameraController!.value.isStreamingImages) {
+        startDetection();
+      } else {
+        isDetecting.value = true;
+      }
+    }
+  }
+
+  Future<void> toggleFlash() async {
+    if (!isInitialized.value) return;
     
     try {
-      isDetectionActive.value = false;
-      isDetecting.value = false;
-      _isProcessingFrame = false;
-
-      _processingTimer?.cancel();
-      _processingTimer = null;
-
-      _frameQueue.clear();
-
-      if (_cameraController != null && _cameraController!.value.isStreamingImages) {
-        try {
-          await _cameraController!.stopImageStream();
-          await Future.delayed(Duration(milliseconds: 100));
-        } catch (e) {
-          print('Error stopping image stream: $e');
-        }
-      }
-
-      _fpsTimer?.cancel();
-      _fpsTimer = null;
-      _cameraController = null;
-
-      currentDetection.value = null;
-      fps.value = 0;
-      _resetCounters();
-      
-      _stopCompleter!.complete();
-    } catch (e) {
-      _stopCompleter!.completeError(e);
-    } finally {
-      _stopCompleter = null;
-    }
-  }
-
-  void _startFpsCounter() {
-    _fpsTimer?.cancel();
-    _fpsTimer = Timer.periodic(Duration(seconds: 1), (timer) {
-      if (isDetectionActive.value) {
-        fps.value = _processedFrames;
-        _processedFrames = 0;
+      if (isFlashOn.value) {
+        await cameraController!.setFlashMode(FlashMode.off);
+        isFlashOn.value = false;
       } else {
-        timer.cancel();
+        await cameraController!.setFlashMode(FlashMode.torch);
+        isFlashOn.value = true;
       }
-    });
-  }
-
-  void clearDetection() {
-    currentDetection.value = null;
-  }
-
-  Future<void> toggleDetection() async {
-    if (isDetectionActive.value) {
-      await stopDetection();
-    } else if (_cameraController != null) {
-      await startDetection(_cameraController!);
+    } catch (e) {
+      debugPrint('Flash toggle error: $e');
+      error.value = 'Flash toggle failed: $e';
     }
   }
 
-  bool get hasDetection => currentDetection.value != null;
-  DetectionResult? get topDetection => currentDetection.value;
-  bool get isReady => isModelLoaded.value && errorMessage.value.isEmpty;
+  Future<void> takePicture() async {
+    if (!isInitialized.value) return;
+
+    try {
+      stopDetection();
+      final XFile picture = await cameraController!.takePicture();
+      
+      Get.toNamed('/result', arguments: {
+        'imagePath': picture.path,
+        'detections': detections.toList(),
+      });
+    } catch (e) {
+      debugPrint('Take picture error: $e');
+      error.value = 'Failed to take picture: $e';
+      resumeDetection();
+    }
+  }
 
   @override
   void onClose() {
     stopDetection();
+    _detectionSubscription?.cancel();
     _detectionService.dispose();
+    cameraController?.dispose();
     super.onClose();
   }
 }

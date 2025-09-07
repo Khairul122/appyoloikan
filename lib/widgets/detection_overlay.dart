@@ -1,179 +1,232 @@
 import 'package:flutter/material.dart';
 import '../models/detection_result.dart';
-import '../utils/constants.dart';
+import '../models/fish_model.dart';
+import '../utils/app_colors.dart';
 
 class DetectionOverlay extends StatelessWidget {
-  final DetectionResult? detection;
-  final Size previewSize;
+  final List<DetectionResult> detections;
+  final Size imageSize;
+  final Size screenSize;
 
   const DetectionOverlay({
-    Key? key,
-    required this.detection,
-    required this.previewSize,
-  }) : super(key: key);
+    super.key,
+    required this.detections,
+    required this.imageSize,
+    required this.screenSize,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (detection == null) return SizedBox.shrink();
-
     return CustomPaint(
-      size: previewSize,
-      painter: DetectionPainter(detection: detection!),
+      painter: DetectionPainter(
+        detections: detections,
+        imageSize: imageSize,
+        screenSize: screenSize,
+      ),
+      size: screenSize,
     );
   }
 }
 
 class DetectionPainter extends CustomPainter {
-  final DetectionResult detection;
+  final List<DetectionResult> detections;
+  final Size imageSize;
+  final Size screenSize;
 
-  DetectionPainter({required this.detection});
+  DetectionPainter({
+    required this.detections,
+    required this.imageSize,
+    required this.screenSize,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    try {
-      final rect = _calculateBoundingRect(size);
-      final color = _getConfidenceColor(detection.confidence);
-
-      _drawBackground(canvas, rect, color);
-      _drawBorder(canvas, rect, color);
-      _drawCorners(canvas, rect, color);
-      _drawLabel(canvas, detection, rect, color);
-      
-    } catch (e) {
-      // Error handled silently in production
+    for (final detection in detections) {
+      _drawBoundingBox(canvas, detection);
+      _drawLabel(canvas, detection);
     }
   }
 
-  Rect _calculateBoundingRect(Size size) {
-    final x = detection.x.clamp(0.0, size.width - AppConstants.minBoundingBoxSize);
-    final y = detection.y.clamp(0.0, size.height - AppConstants.minBoundingBoxSize);
-    final width = detection.width.clamp(AppConstants.minBoundingBoxSize.toDouble(), size.width - x);
-    final height = detection.height.clamp(AppConstants.minBoundingBoxSize.toDouble(), size.height - y);
-    
-    return Rect.fromLTWH(x, y, width, height);
-  }
+  void _drawBoundingBox(Canvas canvas, DetectionResult detection) {
+    final scaleX = screenSize.width / imageSize.width;
+    final scaleY = screenSize.height / imageSize.height;
 
-  void _drawBackground(Canvas canvas, Rect rect, Color color) {
-    final fillPaint = Paint()
-      ..color = color.withOpacity(0.2)
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(rect, fillPaint);
-  }
+    final left = detection.boundingBox.left * scaleX;
+    final top = detection.boundingBox.top * scaleY;
+    final right = detection.boundingBox.right * scaleX;
+    final bottom = detection.boundingBox.bottom * scaleY;
 
-  void _drawBorder(Canvas canvas, Rect rect, Color color) {
-    final strokePaint = Paint()
-      ..color = color
+    final rect = Rect.fromLTRB(left, top, right, bottom);
+    final paint = Paint()
+      ..color = _getConfidenceColor(detection.confidence)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.0;
-    canvas.drawRect(rect, strokePaint);
+      ..strokeWidth = 3.0;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(8.0)),
+      paint,
+    );
   }
 
-  void _drawCorners(Canvas canvas, Rect rect, Color color) {
-    final cornerLength = 30.0;
-    final cornerPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6.0;
-    
-    final corners = [
-      [rect.topLeft, [Offset(cornerLength, 0), Offset(0, cornerLength)]],
-      [rect.topRight, [Offset(-cornerLength, 0), Offset(0, cornerLength)]],
-      [rect.bottomLeft, [Offset(cornerLength, 0), Offset(0, -cornerLength)]],
-      [rect.bottomRight, [Offset(-cornerLength, 0), Offset(0, -cornerLength)]],
-    ];
+  void _drawLabel(Canvas canvas, DetectionResult detection) {
+    final scaleX = screenSize.width / imageSize.width;
+    final scaleY = screenSize.height / imageSize.height;
 
-    for (final corner in corners) {
-      final point = corner[0] as Offset;
-      final offsets = corner[1] as List<Offset>;
-      for (final offset in offsets) {
-        canvas.drawLine(point, point + offset, cornerPaint);
-      }
-    }
-  }
+    final fish = FishModel.fromClassName(detection.className);
+    final confidence = (detection.confidence * 100).toStringAsFixed(1);
+    final labelText = '${fish.name}\n$confidence%';
 
-  void _drawLabel(Canvas canvas, DetectionResult detection, Rect rect, Color color) {
     final textSpan = TextSpan(
-      children: [
-        TextSpan(
-          text: detection.displayName,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            height: 1.2,
-          ),
-        ),
-        TextSpan(
-          text: '\n${detection.confidencePercentage}',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            height: 1.2,
-          ),
-        ),
-      ],
+      text: labelText,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        height: 1.2,
+      ),
     );
 
     final textPainter = TextPainter(
       text: textSpan,
       textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
     );
 
     textPainter.layout();
 
+    final left = detection.boundingBox.left * scaleX;
+    final top = detection.boundingBox.top * scaleY;
+
     final labelRect = Rect.fromLTWH(
-      rect.left,
-      (rect.top - textPainter.height - 16).clamp(0, rect.top),
-      textPainter.width + 24,
-      textPainter.height + 16,
+      left,
+      top - textPainter.height - 8,
+      textPainter.width + 16,
+      textPainter.height + 8,
     );
+
+    final labelPaint = Paint()
+      ..color = _getConfidenceColor(detection.confidence).withOpacity(0.8);
 
     canvas.drawRRect(
-      RRect.fromRectAndRadius(labelRect, Radius.circular(8)),
-      Paint()..color = color,
+      RRect.fromRectAndRadius(labelRect, const Radius.circular(6.0)),
+      labelPaint,
     );
 
-    textPainter.paint(canvas, Offset(labelRect.left + 12, labelRect.top + 8));
-
-    _drawConfidenceBar(canvas, detection, labelRect, color);
-  }
-
-  void _drawConfidenceBar(Canvas canvas, DetectionResult detection, Rect labelRect, Color color) {
-    final barHeight = 6.0;
-    final barRect = Rect.fromLTWH(
-      labelRect.left + 12,
-      labelRect.bottom + 6,
-      labelRect.width - 24,
-      barHeight,
-    );
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(barRect, Radius.circular(barHeight / 2)),
-      Paint()..color = Colors.white.withOpacity(0.3),
-    );
-
-    final confidenceWidth = barRect.width * detection.confidence;
-    final confidenceRect = Rect.fromLTWH(
-      barRect.left,
-      barRect.top,
-      confidenceWidth,
-      barRect.height,
-    );
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(confidenceRect, Radius.circular(barHeight / 2)),
-      Paint()..color = Colors.white,
+    textPainter.paint(
+      canvas,
+      Offset(left + 8, top - textPainter.height - 4),
     );
   }
 
   Color _getConfidenceColor(double confidence) {
-    if (confidence >= 0.8) return Colors.green;
-    if (confidence >= 0.7) return Colors.lightGreen;
-    if (confidence >= AppConstants.confidenceThreshold) return Colors.orange;
-    return Colors.red;
+    if (confidence >= 0.8) {
+      return AppColors.confidenceHigh;
+    } else if (confidence >= 0.7) {
+      return AppColors.confidenceMedium;
+    } else {
+      return AppColors.confidenceLow;
+    }
   }
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class DetectionInfoCard extends StatelessWidget {
+  final DetectionResult? detection;
+
+  const DetectionInfoCard({
+    super.key,
+    this.detection,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (detection == null) {
+      return const SizedBox.shrink();
+    }
+
+    final fish = FishModel.fromClassName(detection!.className);
+    final confidence = (detection!.confidence * 100).toStringAsFixed(1);
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: _getConfidenceColor(detection!.confidence),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  fish.name,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '$confidence%',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: _getConfidenceColor(detection!.confidence),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            fish.scientificName,
+            style: const TextStyle(
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            fish.description,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getConfidenceColor(double confidence) {
+    if (confidence >= 0.8) {
+      return AppColors.confidenceHigh;
+    } else if (confidence >= 0.7) {
+      return AppColors.confidenceMedium;
+    } else {
+      return AppColors.confidenceLow;
+    }
+  }
 }

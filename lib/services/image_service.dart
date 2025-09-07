@@ -1,179 +1,108 @@
-import 'dart:io';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
-import '../utils/constants.dart';
+import 'dart:isolate';
+import 'dart:typed_data';
+import 'package:camera/camera.dart';
+import 'package:image/image.dart' as img;
 
-class ImageService {
-  static ImageService? _instance;
-  static ImageService get instance => _instance ??= ImageService._();
-  
-  ImageService._();
+class ImageProcessingService {
+  static final ImageProcessingService _instance = ImageProcessingService._internal();
+  factory ImageProcessingService() => _instance;
+  ImageProcessingService._internal();
 
-  final ImagePicker _picker = ImagePicker();
-  List<String> _labels = [];
-
-  Future<void> initialize() async {
-    _labels = await AppConstants.loadLabels();
+  static Future<Uint8List> convertCameraImageInIsolate(CameraImage cameraImage) async {
+    final receivePort = ReceivePort();
+    await Isolate.spawn(_isolateEntryPoint, receivePort.sendPort);
+    
+    final sendPort = await receivePort.first as SendPort;
+    final responsePort = ReceivePort();
+    
+    sendPort.send([cameraImage, responsePort.sendPort]);
+    
+    return await responsePort.first as Uint8List;
   }
 
-  String getFishName(int classIndex) {
-    if (classIndex < 0 || classIndex >= _labels.length) {
-      return 'Unknown Fish';
-    }
-    return _labels[classIndex]
-        .replaceAll('_', ' ')
-        .split(' ')
-        .map((word) => word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
-        .join(' ');
-  }
-
-  List<String> get allFishNames => _labels.map((label) => 
-      label.replaceAll('_', ' ').split(' ').map((word) => 
-          word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1)).join(' ')).toList();
-
-  int get totalFishTypes => _labels.length;
-
-  Future<File?> pickImageFromGallery() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: AppConstants.maxImageWidth,
-        maxHeight: AppConstants.maxImageHeight,
-        imageQuality: AppConstants.imageQuality,
-      );
+  static void _isolateEntryPoint(SendPort sendPort) async {
+    final port = ReceivePort();
+    sendPort.send(port.sendPort);
+    
+    await for (final message in port) {
+      final cameraImage = message[0] as CameraImage;
+      final responsePort = message[1] as SendPort;
       
-      return image != null ? File(image.path) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<File?> pickImageFromCamera() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: AppConstants.maxImageWidth,
-        maxHeight: AppConstants.maxImageHeight,
-        imageQuality: AppConstants.imageQuality,
-      );
-      
-      return image != null ? File(image.path) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<File?> saveImageToLocalStorage(File imageFile) async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final imagesDir = Directory('${directory.path}/fish_images');
-      
-      if (!await imagesDir.exists()) {
-        await imagesDir.create(recursive: true);
+      try {
+        final result = _convertCameraImage(cameraImage);
+        responsePort.send(result);
+      } catch (e) {
+        responsePort.send(Uint8List(0));
       }
-
-      final String fileName = 'fish_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final String filePath = path.join(imagesDir.path, fileName);
-      
-      final File savedImage = await imageFile.copy(filePath);
-      return savedImage;
-    } catch (e) {
-      return null;
     }
   }
 
-  Future<List<File>> getStoredImages() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final imagesDir = Directory('${directory.path}/fish_images');
-      
-      if (!await imagesDir.exists()) {
-        return [];
+  static Uint8List _convertCameraImage(CameraImage cameraImage) {
+    if (cameraImage.format.group == ImageFormatGroup.yuv420) {
+      return _convertYUV420ToRGB(cameraImage);
+    } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+      return _convertBGRA8888ToRGB(cameraImage);
+    } else {
+      throw UnsupportedError('Unsupported image format');
+    }
+  }
+
+  static Uint8List _convertYUV420ToRGB(CameraImage cameraImage) {
+    final width = cameraImage.width;
+    final height = cameraImage.height;
+    
+    final yPlane = cameraImage.planes[0];
+    final uPlane = cameraImage.planes[1];
+    final vPlane = cameraImage.planes[2];
+    
+    final yBuffer = yPlane.bytes;
+    final uBuffer = uPlane.bytes;
+    final vBuffer = vPlane.bytes;
+    
+    final image = img.Image(width: width, height: height);
+    
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final yIndex = y * yPlane.bytesPerRow + x;
+        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
+        
+        if (yIndex >= yBuffer.length || uvIndex >= uBuffer.length || uvIndex >= vBuffer.length) {
+          continue;
+        }
+        
+        final yValue = yBuffer[yIndex];
+        final uValue = uBuffer[uvIndex];
+        final vValue = vBuffer[uvIndex];
+        
+        final r = (yValue + 1.402 * (vValue - 128)).clamp(0, 255).toInt();
+        final g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).clamp(0, 255).toInt();
+        final b = (yValue + 1.772 * (uValue - 128)).clamp(0, 255).toInt();
+        
+        image.setPixelRgb(x, y, r, g, b);
       }
-
-      final List<FileSystemEntity> files = imagesDir.listSync();
-      final List<File> imageFiles = files
-          .where((file) => file is File && _isImageFile(file.path))
-          .cast<File>()
-          .toList();
-
-      imageFiles.sort((a, b) => 
-          b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-
-      return imageFiles;
-    } catch (e) {
-      return [];
     }
+    
+    return Uint8List.fromList(img.encodeJpg(image));
   }
 
-  bool _isImageFile(String filePath) {
-    final extension = path.extension(filePath).toLowerCase();
-    return ['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(extension);
-  }
-
-  Future<bool> deleteImage(File imageFile) async {
-    try {
-      if (await imageFile.exists()) {
-        await imageFile.delete();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  Future<void> clearAllImages() async {
-    try {
-      final directory = await getApplicationDocumentsDirectory();
-      final imagesDir = Directory('${directory.path}/fish_images');
+  static Uint8List _convertBGRA8888ToRGB(CameraImage cameraImage) {
+    final bytes = cameraImage.planes[0].bytes;
+    final width = cameraImage.width;
+    final height = cameraImage.height;
+    
+    final image = img.Image(width: width, height: height);
+    
+    for (int i = 0, j = 0; i < bytes.length && j < width * height; i += 4, j++) {
+      final x = j % width;
+      final y = j ~/ width;
       
-      if (await imagesDir.exists()) {
-        await imagesDir.delete(recursive: true);
-      }
-    } catch (e) {
-      print('Error clearing images: $e');
-    }
-  }
-
-  Future<int> getStoredImagesCount() async {
-    try {
-      final images = await getStoredImages();
-      return images.length;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  Future<double> getStoredImagesSize() async {
-    try {
-      final images = await getStoredImages();
-      double totalSize = 0;
+      final r = bytes[i + 2];
+      final g = bytes[i + 1];
+      final b = bytes[i];
       
-      for (final image in images) {
-        final stat = await image.stat();
-        totalSize += stat.size;
-      }
-      
-      return totalSize / (1024 * 1024);
-    } catch (e) {
-      return 0;
+      image.setPixelRgb(x, y, r, g, b);
     }
-  }
-
-  Future<bool> validateImageFile(File imageFile) async {
-    try {
-      if (!await imageFile.exists()) return false;
-      if (!_isImageFile(imageFile.path)) return false;
-      
-      final stat = await imageFile.stat();
-      if (stat.size == 0) return false;
-      if (stat.size > (10 * 1024 * 1024)) return false;
-      
-      return true;
-    } catch (e) {
-      return false;
-    }
+    
+    return Uint8List.fromList(img.encodeJpg(image));
   }
 }

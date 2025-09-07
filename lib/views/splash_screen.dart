@@ -1,242 +1,181 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../controllers/splash_controller.dart';
+import 'package:lottie/lottie.dart';
+import '../utils/app_colors.dart';
 import '../utils/constants.dart';
 
-class SplashScreen extends StatelessWidget {
-  final SplashController controller = Get.put(SplashController());
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with TickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late AnimationController _scaleController;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeAnimations();
+    _navigateToHome();
+  }
+
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    ));
+
+    _scaleAnimation = Tween<double>(
+      begin: 0.5,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.elasticOut,
+    ));
+
+    _fadeController.forward();
+    _scaleController.forward();
+  }
+
+  void _navigateToHome() {
+    Future.delayed(AppConstants.splashDuration, () {
+      if (mounted) {
+        Get.offNamed('/home');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _scaleController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.primary,
       body: Container(
-        decoration: _buildGradientBackground(),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return Padding(
-                padding: EdgeInsets.all(24.0),
-                child: Column(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: _buildLogoSection(constraints),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: _buildLoadingSection(constraints),
-                    ),
-                  ],
-                ),
-              );
-            },
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppColors.primary,
+              AppColors.primaryDark,
+            ],
           ),
         ),
-      ),
-    );
-  }
-
-  BoxDecoration _buildGradientBackground() {
-    return BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Colors.blue[800]!,
-          Colors.blue[600]!,
-          Colors.blue[400]!,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogoSection(BoxConstraints constraints) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _buildAnimatedLogo(constraints),
-          SizedBox(height: 24),
-          _buildAppTitleSection(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnimatedLogo(BoxConstraints constraints) {
-    final logoSize = constraints.maxWidth * 0.3;
-    
-    return AnimatedBuilder(
-      animation: controller.animationController,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: controller.scaleAnimation.value,
-          child: FadeTransition(
-            opacity: controller.fadeAnimation,
-            child: Container(
-              width: logoSize.clamp(100.0, 200.0),
-              height: logoSize.clamp(100.0, 200.0),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: Offset(0, 10),
-                  ),
-                ],
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedBuilder(
+                animation: _scaleAnimation,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _scaleAnimation.value,
+                    child: Container(
+                      width: 200,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: SizedBox(
+                          width: 120,
+                          height: 120,
+                          child: Lottie.asset(
+                            'lib/assets/animations/fish_loading.json',
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Icon(
+                                Icons.set_meal,
+                                size: 80,
+                                color: AppColors.primary,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
-              child: Icon(
-                Icons.camera_alt,
-                size: logoSize.clamp(50.0, 100.0),
-                color: Colors.blue[600],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildAppTitleSection() {
-    return SlideTransition(
-      position: controller.slideAnimation,
-      child: FadeTransition(
-        opacity: controller.fadeAnimation,
-        child: Column(
-          children: [
-            Text(
-              AppConstants.appName,
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: 1.2,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 12),
-            Text(
-              AppConstants.appDescription,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white.withOpacity(0.9),
-                fontWeight: FontWeight.w300,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingSection(BoxConstraints constraints) {
-    return SlideTransition(
-      position: controller.slideAnimation,
-      child: FadeTransition(
-        opacity: controller.fadeAnimation,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _buildProgressBar(),
-            SizedBox(height: 24),
-            _buildLoadingText(),
-            SizedBox(height: 16),
-            _buildProgressPercentage(),
-            SizedBox(height: 40),
-            _buildLoadingIndicator(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProgressBar() {
-    return Obx(() => Container(
-      width: double.infinity,
-      height: 6,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: FractionallySizedBox(
-        alignment: Alignment.centerLeft,
-        widthFactor: controller.loadingProgress.value,
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Colors.white,
-                Colors.white.withOpacity(0.8),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(3),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.white.withOpacity(0.5),
-                blurRadius: 4,
-                spreadRadius: 1,
+              const SizedBox(height: 40),
+              AnimatedBuilder(
+                animation: _fadeAnimation,
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _fadeAnimation.value,
+                    child: Column(
+                      children: [
+                        const Text(
+                          AppConstants.appName,
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.surface,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'AI-Powered Fish Detection',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: AppColors.surface.withOpacity(0.9),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 60),
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppColors.surface.withOpacity(0.8),
+                            ),
+                            strokeWidth: 3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ],
           ),
         ),
       ),
-    ));
-  }
-
-  Widget _buildLoadingText() {
-    return Obx(() => AnimatedSwitcher(
-      duration: Duration(milliseconds: 300),
-      child: Text(
-        controller.loadingText.value,
-        key: ValueKey(controller.loadingText.value),
-        style: TextStyle(
-          fontSize: 18,
-          color: Colors.white,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 0.5,
-        ),
-        textAlign: TextAlign.center,
-      ),
-    ));
-  }
-
-  Widget _buildProgressPercentage() {
-    return Obx(() => Text(
-      '${(controller.loadingProgress.value * 100).toInt()}%',
-      style: TextStyle(
-        fontSize: 14,
-        color: Colors.white.withOpacity(0.8),
-        fontWeight: FontWeight.w600,
-      ),
-    ));
-  }
-
-  Widget _buildLoadingIndicator() {
-    return Obx(() {
-      if (!controller.isLoading.value) return SizedBox.shrink();
-
-      return Container(
-        width: 120,
-        height: 40,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(3, (index) {
-            return AnimatedContainer(
-              duration: Duration(milliseconds: 400),
-              margin: EdgeInsets.symmetric(horizontal: 4),
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.7),
-                shape: BoxShape.circle,
-              ),
-            );
-          }),
-        ),
-      );
-    });
+    );
   }
 }
