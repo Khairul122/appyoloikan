@@ -44,14 +44,8 @@ class UploadController extends GetxController {
   }
 
   Future<void> _loadLabels() async {
-    try {
-      final labelsData = await rootBundle.loadString('lib/assets/models/labels.txt');
-      _labels = labelsData.split('\n').where((label) => label.isNotEmpty).toList();
-      debugPrint('Loaded ${_labels.length} labels: $_labels');
-    } catch (e) {
-      _labels = AppConstants.fishClasses;
-      debugPrint('Using default labels: $_labels');
-    }
+    _labels = await AppConstants.loadLabels();
+    debugPrint('Loaded ${_labels.length} labels: $_labels');
   }
 
   Future<void> pickImageFromGallery() async {

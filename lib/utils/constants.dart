@@ -1,6 +1,9 @@
+import 'package:flutter/services.dart';
+
 class AppConstants {
   static const String appName = 'Fish Detector';
   static const String modelPath = 'lib/assets/models/best.tflite';
+  static const String labelsPath = 'lib/assets/models/labels.txt';
   static const String splashAnimationPath = 'lib/assets/animations/splash.json';
   
   static const double confidenceThreshold = 0.1;
@@ -23,8 +26,14 @@ class AppConstants {
     'ikan_kakap_putih',
     'ikan_kembung',
     'ikan_sarden',
-    'ikan_tongkol',
-    'ikan_tuna',
-    'ikan_bandeng',
   ];
+
+  static Future<List<String>> loadLabels() async {
+    try {
+      final labelsData = await rootBundle.loadString(labelsPath);
+      return labelsData.split('\n').where((label) => label.isNotEmpty).toList();
+    } catch (e) {
+      return fishClasses;
+    }
+  }
 }

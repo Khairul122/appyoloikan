@@ -44,12 +44,7 @@ class LiveDetectionService {
   }
 
   Future<void> _loadLabels() async {
-    try {
-      final labelsData = await rootBundle.loadString('lib/assets/models/labels.txt');
-      _labels = labelsData.split('\n').where((label) => label.isNotEmpty).toList();
-    } catch (e) {
-      _labels = AppConstants.fishClasses;
-    }
+    _labels = await AppConstants.loadLabels();
   }
 
   void addImageFrame(CameraImage image) {
