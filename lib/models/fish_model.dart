@@ -14,56 +14,60 @@ class FishModel {
   });
 
   factory FishModel.fromClassName(String className) {
-    switch (className.toLowerCase()) {
+    final normalizedClassName = className.toLowerCase().trim();
+    print('FishModel.fromClassName called with: "$className" -> normalized: "$normalizedClassName"');
+    
+    switch (normalizedClassName) {
       case 'ikan_baramundi':
         return FishModel(
           name: 'Ikan Baramundi',
           scientificName: 'Lates calcarifer',
-          description: 'Ikan predator air tawar dan payau yang besar',
+          description: 'Ikan predator air tawar dan payau yang dapat tumbuh besar hingga 1,5 meter. Sangat populer untuk budidaya karena pertumbuhannya yang cepat dan rasanya yang lezat.',
           habitat: 'Perairan payau, muara sungai, dan laut dangkal',
-          characteristics: ['Tubuh memanjang', 'Mulut besar', 'Sisik besar'],
+          characteristics: ['Tubuh memanjang dan kokoh', 'Mulut besar dengan gigi tajam', 'Sisik besar berwarna perak kehijauan'],
         );
       case 'ikan_belanak_merah':
         return FishModel(
           name: 'Ikan Belanak Merah',
-          scientificName: 'Mugil cephalus',
-          description: 'Ikan yang hidup di perairan dangkal',
-          habitat: 'Perairan pantai dan muara sungai',
-          characteristics: ['Tubuh torpedo', 'Warna kemerahan', 'Mulut kecil'],
+          scientificName: 'Valamugil buchanani',
+          description: 'Ikan herbivora yang memiliki warna kemerah-merahan khas. Sering ditemukan di perairan dangkal dan menjadi target tangkapan nelayan tradisional.',
+          habitat: 'Perairan pantai, estuari, dan muara sungai',
+          characteristics: ['Tubuh torpedo dengan warna kemerahan', 'Mulut kecil terminal', 'Sirip ekor bercagak dalam'],
         );
       case 'ikan_cakalang':
         return FishModel(
           name: 'Ikan Cakalang',
           scientificName: 'Katsuwonus pelamis',
-          description: 'Ikan pelagis yang aktif berenang dalam kelompok',
-          habitat: 'Perairan laut tropis dan subtropis',
-          characteristics: ['Garis-garis gelap horizontal', 'Tubuh fusiform', 'Sirip punggung tinggi'],
+          description: 'Ikan tuna kecil yang sangat penting secara ekonomi. Memiliki daging yang kaya protein dan menjadi bahan baku utama industri pengalengan ikan.',
+          habitat: 'Perairan laut terbuka, tropis dan subtropis',
+          characteristics: ['Garis-garis gelap horizontal di punggung', 'Tubuh fusiform hidrodinamis', 'Sirip punggung tinggi dan kuat'],
         );
       case 'ikan_kakap_putih':
         return FishModel(
           name: 'Ikan Kakap Putih',
-          scientificName: 'Lates calcarifer',
-          description: 'Ikan predator bernilai ekonomi tinggi',
-          habitat: 'Perairan laut dan payau',
-          characteristics: ['Tubuh memanjang', 'Warna putih keperakan', 'Mulut besar'],
+          scientificName: 'Lates niloticus',
+          description: 'Ikan predator bernilai ekonomi tinggi dengan daging putih yang lezat. Sering menjadi target utama dalam perikanan komersial.',
+          habitat: 'Perairan laut tropis, terumbu karang, dan perairan dalam',
+          characteristics: ['Tubuh oval memanjang berwarna putih keperakan', 'Mulut besar dengan rahang kuat', 'Mata besar dan tajam'],
         );
       case 'ikan_kembung':
         return FishModel(
           name: 'Ikan Kembung',
-          scientificName: 'Rastrelliger spp.',
-          description: 'Ikan pelagis kecil yang hidup bergerombol',
-          habitat: 'Perairan laut tropis',
-          characteristics: ['Tubuh memanjang', 'Sisik halus', 'Warna kebiruan'],
+          scientificName: 'Rastrelliger kanagurta',
+          description: 'Ikan pelagis kecil yang hidup bergerombol dalam jumlah besar. Merupakan sumber protein penting dan mudah diolah menjadi berbagai masakan.',
+          habitat: 'Perairan laut tropis di zona neritik',
+          characteristics: ['Tubuh streamlined berwarna biru kehijauan', 'Sisik halus dan mudah lepas', 'Pola gelombang di sisi tubuh'],
         );
       case 'ikan_sarden':
         return FishModel(
           name: 'Ikan Sarden',
-          scientificName: 'Sardinella spp.',
-          description: 'Ikan kecil yang hidup dalam kelompok besar',
-          habitat: 'Perairan laut dangkal',
-          characteristics: ['Tubuh kecil memanjang', 'Sisik mudah lepas', 'Warna keperakan'],
+          scientificName: 'Sardinella longiceps',
+          description: 'Ikan kecil yang hidup dalam kelompok besar dan menjadi basis industri pengalengan. Kaya akan omega-3 dan nutrisi penting lainnya.',
+          habitat: 'Perairan laut dangkal dan zona pesisir',
+          characteristics: ['Tubuh kecil memanjang berwarna keperakan', 'Sisik mudah lepas saat ditangani', 'Perut mengkilap seperti perak'],
         );
       default:
+        print('No match found for: "$normalizedClassName". Using default.');
         return FishModel(
           name: className,
           scientificName: 'Unknown',

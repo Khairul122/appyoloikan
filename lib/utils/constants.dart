@@ -8,7 +8,7 @@ class AppConstants {
   
   static const double confidenceThreshold = 0.1;
   static const double iouThreshold = 0.5;
-  static const int inputImageSize = 320;
+  static const int inputImageSize = 640; // Standardize to model export size
   static const int uploadImageSize = 640;
   
   static const Duration splashDuration = Duration(seconds: 3);

@@ -14,12 +14,34 @@ class HomeView extends StatelessWidget {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AppColors.primary,
-        title: const Text(
-          AppConstants.appName,
-          style: TextStyle(
-            color: AppColors.surface,
-            fontWeight: FontWeight.bold,
-          ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                'lib/assets/images/logo.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.set_meal,
+                    color: AppColors.surface,
+                    size: 32,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              AppConstants.appName,
+              style: TextStyle(
+                color: AppColors.surface,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
         centerTitle: true,
         flexibleSpace: Container(

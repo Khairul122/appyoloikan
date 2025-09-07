@@ -110,12 +110,13 @@ class _SplashScreenState extends State<SplashScreen>
                         ],
                       ),
                       child: Center(
-                        child: SizedBox(
-                          width: 120,
-                          height: 120,
-                          child: Lottie.asset(
-                            'lib/assets/animations/fish_loading.json',
-                            fit: BoxFit.contain,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(60),
+                          child: Image.asset(
+                            'lib/assets/images/logo.png',
+                            width: 120,
+                            height: 120,
+                            fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
                               return const Icon(
                                 Icons.set_meal,

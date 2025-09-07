@@ -3,6 +3,18 @@ import '../models/detection_result.dart';
 import '../models/fish_model.dart';
 import '../utils/app_colors.dart';
 
+class LetterboxInfo {
+  final double scale;
+  final double offsetX;
+  final double offsetY;
+  
+  LetterboxInfo({
+    required this.scale,
+    required this.offsetX,
+    required this.offsetY,
+  });
+}
+
 class DetectionOverlay extends StatelessWidget {
   final List<DetectionResult> detections;
   final Size imageSize;
@@ -41,22 +53,30 @@ class DetectionPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final detection in detections) {
+    print('DetectionPainter: painting ${detections.length} detections');
+    print('DetectionPainter: canvas size: $size, screen size: $screenSize, image size: $imageSize');
+    
+    for (int i = 0; i < detections.length; i++) {
+      final detection = detections[i];
+      print('Detection $i: ${detection.className}, bbox: ${detection.boundingBox}, confidence: ${detection.confidence}');
       _drawBoundingBox(canvas, detection);
       _drawLabel(canvas, detection);
     }
   }
 
   void _drawBoundingBox(Canvas canvas, DetectionResult detection) {
-    final scaleX = screenSize.width / imageSize.width;
-    final scaleY = screenSize.height / imageSize.height;
-
-    final left = detection.boundingBox.left * scaleX;
-    final top = detection.boundingBox.top * scaleY;
-    final right = detection.boundingBox.right * scaleX;
-    final bottom = detection.boundingBox.bottom * scaleY;
+    final letterboxInfo = _calculateLetterboxScaling();
+    
+    final left = (detection.boundingBox.left * imageSize.width * letterboxInfo.scale) + letterboxInfo.offsetX;
+    final top = (detection.boundingBox.top * imageSize.height * letterboxInfo.scale) + letterboxInfo.offsetY;
+    final right = (detection.boundingBox.right * imageSize.width * letterboxInfo.scale) + letterboxInfo.offsetX;
+    final bottom = (detection.boundingBox.bottom * imageSize.height * letterboxInfo.scale) + letterboxInfo.offsetY;
 
     final rect = Rect.fromLTRB(left, top, right, bottom);
+    print('Letterbox scaling: scale=${letterboxInfo.scale}, offset=(${letterboxInfo.offsetX},${letterboxInfo.offsetY})');
+    print('Drawing bbox: original=${detection.boundingBox}, scaled=$rect');
+    print('Image size: $imageSize, Screen size: $screenSize');
+    
     final paint = Paint()
       ..color = _getConfidenceColor(detection.confidence)
       ..style = PaintingStyle.stroke
@@ -69,20 +89,25 @@ class DetectionPainter extends CustomPainter {
   }
 
   void _drawLabel(Canvas canvas, DetectionResult detection) {
-    final scaleX = screenSize.width / imageSize.width;
-    final scaleY = screenSize.height / imageSize.height;
-
+    final letterboxInfo = _calculateLetterboxScaling();
+    
     final fish = FishModel.fromClassName(detection.className);
     final confidence = (detection.confidence * 100).toStringAsFixed(1);
-    final labelText = '${fish.name}\n$confidence%';
+    final labelText = '${detection.className} ${confidence}%';
 
     final textSpan = TextSpan(
       text: labelText,
       style: const TextStyle(
         color: Colors.white,
-        fontSize: 14,
-        fontWeight: FontWeight.bold,
-        height: 1.2,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        shadows: [
+          Shadow(
+            offset: Offset(1.0, 1.0),
+            blurRadius: 2.0,
+            color: Colors.black87,
+          ),
+        ],
       ),
     );
 
@@ -94,27 +119,31 @@ class DetectionPainter extends CustomPainter {
 
     textPainter.layout();
 
-    final left = detection.boundingBox.left * scaleX;
-    final top = detection.boundingBox.top * scaleY;
+    final left = (detection.boundingBox.left * imageSize.width * letterboxInfo.scale) + letterboxInfo.offsetX;
+    final top = (detection.boundingBox.top * imageSize.height * letterboxInfo.scale) + letterboxInfo.offsetY;
 
+    // Standard YOLO label positioning - above bounding box
+    final labelY = top - textPainter.height - 4;
+    final adjustedLabelY = labelY < 0 ? top + 4 : labelY; // If label goes above screen, put it below bbox top
+    
     final labelRect = Rect.fromLTWH(
       left,
-      top - textPainter.height - 8,
-      textPainter.width + 16,
-      textPainter.height + 8,
+      adjustedLabelY - 2,
+      textPainter.width + 8,
+      textPainter.height + 4,
     );
 
     final labelPaint = Paint()
-      ..color = _getConfidenceColor(detection.confidence).withOpacity(0.8);
+      ..color = _getConfidenceColor(detection.confidence).withOpacity(0.9);
 
     canvas.drawRRect(
-      RRect.fromRectAndRadius(labelRect, const Radius.circular(6.0)),
+      RRect.fromRectAndRadius(labelRect, const Radius.circular(3.0)),
       labelPaint,
     );
 
     textPainter.paint(
       canvas,
-      Offset(left + 8, top - textPainter.height - 4),
+      Offset(left + 4, adjustedLabelY),
     );
   }
 
@@ -126,6 +155,34 @@ class DetectionPainter extends CustomPainter {
     } else {
       return AppColors.confidenceLow;
     }
+  }
+
+  LetterboxInfo _calculateLetterboxScaling() {
+    // Calculate letterbox scaling to maintain aspect ratio
+    final imageAspectRatio = imageSize.width / imageSize.height;
+    final screenAspectRatio = screenSize.width / screenSize.height;
+    
+    double scale;
+    double offsetX = 0.0;
+    double offsetY = 0.0;
+    
+    if (imageAspectRatio > screenAspectRatio) {
+      // Image is wider than screen - fit by width (letterbox top/bottom)
+      scale = screenSize.width / imageSize.width;
+      final scaledHeight = imageSize.height * scale;
+      offsetY = (screenSize.height - scaledHeight) / 2.0;
+    } else {
+      // Image is taller than screen - fit by height (letterbox left/right)
+      scale = screenSize.height / imageSize.height;
+      final scaledWidth = imageSize.width * scale;
+      offsetX = (screenSize.width - scaledWidth) / 2.0;
+    }
+    
+    return LetterboxInfo(
+      scale: scale,
+      offsetX: offsetX,
+      offsetY: offsetY,
+    );
   }
 
   @override

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/upload_controller.dart';
@@ -17,12 +18,34 @@ class UploadDetectionView extends StatelessWidget {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AppColors.primary,
-        title: const Text(
-          'Upload Detection',
-          style: TextStyle(
-            color: AppColors.surface,
-            fontWeight: FontWeight.bold,
-          ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.asset(
+                'lib/assets/images/logo.png',
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.set_meal,
+                    color: AppColors.surface,
+                    size: 28,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Upload Detection',
+              style: TextStyle(
+                color: AppColors.surface,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
         centerTitle: true,
         flexibleSpace: Container(
@@ -251,23 +274,28 @@ class UploadDetectionView extends StatelessWidget {
               controller.selectedImage.value!,
               width: double.infinity,
               height: 400,
-              fit: BoxFit.cover,
+              fit: BoxFit.contain, // Changed from cover to contain
             ),
           ),
           if (controller.detections.isNotEmpty)
             Positioned.fill(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: DetectionOverlay(
-                  detections: controller.detections,
-                  imageSize: Size(
-                    controller.selectedImage.value!
-                        .readAsBytesSync()
-                        .length
-                        .toDouble(),
-                    400,
-                  ),
-                  screenSize: const Size(400, 400),
+                child: FutureBuilder<Size>(
+                  future: _getImageSize(controller.selectedImage.value!),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) return const SizedBox.shrink();
+                    
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        return DetectionOverlay(
+                          detections: controller.detections,
+                          imageSize: snapshot.data!,
+                          screenSize: Size(constraints.maxWidth, 400),
+                        );
+                      },
+                    );
+                  },
                 ),
               ),
             ),
@@ -371,6 +399,16 @@ class UploadDetectionView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<Size> _getImageSize(File imageFile) async {
+    final bytes = await imageFile.readAsBytes();
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    return Size(
+      frame.image.width.toDouble(),
+      frame.image.height.toDouble(),
     );
   }
 }

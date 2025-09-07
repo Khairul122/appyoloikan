@@ -1,6 +1,7 @@
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -77,6 +78,12 @@ class InferenceIsolate {
           } catch (e) {
             interpreter = Interpreter.fromBuffer(modelBuffer);
           }
+          
+          // Print model info for debugging
+          final inputShape = interpreter!.getInputTensor(0).shape;
+          final outputShape = interpreter!.getOutputTensor(0).shape;
+          print('Model input shape: $inputShape');
+          print('Model output shape: $outputShape');
         }
         
         final imageBytes = message['imageBytes'] as Uint8List;
@@ -109,17 +116,24 @@ class InferenceIsolate {
     final image = img.decodeImage(imageBytes);
     if (image == null) throw Exception('Failed to decode image');
     
+    // Get dynamic output shape from interpreter
+    final outputShape = interpreter.getOutputTensor(0).shape;
+    final numClasses = outputShape[1] - 5; // Dynamic: total_features - 5
+    final numAnchors = outputShape[2]; // Dynamic: number of anchors
+    
     final resizedImage = img.copyResize(image, width: inputSize, height: inputSize);
     final input = _preprocessImage(resizedImage, inputSize);
     
+    // Create dynamic output tensor based on actual model output shape
     final outputTensor = List.generate(1, (_) => 
-      List.generate(14, (_) => List.filled(8400, 0.0)));
+      List.generate(outputShape[1], (_) => List.filled(outputShape[2], 0.0)));
     
     final inputTensor = input.reshape([1, inputSize, inputSize, 3]);
     interpreter.run(inputTensor, outputTensor);
     
     return _postprocessOutput(outputTensor[0], labels, 
-      image.width.toDouble(), image.height.toDouble(), inputSize, isLive);
+      image.width.toDouble(), image.height.toDouble(), inputSize, isLive,
+      numClasses, numAnchors);
   }
 
   static Float32List _preprocessImage(img.Image image, int size) {
@@ -145,17 +159,20 @@ class InferenceIsolate {
     double originalHeight,
     int inputSize,
     bool isLive,
+    int numClasses,
+    int numDetections,
   ) {
     final detections = <DetectionResult>[];
-    const numClasses = 9; // Fixed: model has 9 classes (14 - 5 = 9)
-    const numDetections = 8400;
 
     for (int i = 0; i < numDetections; i++) {
       final centerX = output[0][i];
       final centerY = output[1][i];
       final width = output[2][i];
       final height = output[3][i];
-      final objectConfidence = output[4][i];
+      final objectnessLogit = output[4][i];
+
+      // Apply sigmoid to objectness (YOLOv8 outputs logits)
+      final objectConfidence = _sigmoid(objectnessLogit);
 
       if (!isLive && objectConfidence < 0.01) continue; // Very low threshold for upload
       if (isLive && objectConfidence < AppConstants.confidenceThreshold) continue;
@@ -163,8 +180,10 @@ class InferenceIsolate {
       double maxClassConfidence = 0.0;
       int maxClassIndex = 0;
 
+      // Apply sigmoid to class scores and find max
       for (int j = 0; j < numClasses; j++) {
-        final classConfidence = output[5 + j][i];
+        final classLogit = output[5 + j][i];
+        final classConfidence = _sigmoid(classLogit); // Apply sigmoid
         if (classConfidence > maxClassConfidence) {
           maxClassConfidence = classConfidence;
           maxClassIndex = j;
@@ -175,23 +194,38 @@ class InferenceIsolate {
       if (!isLive && finalConfidence < 0.01) continue; // Very low threshold for upload
       if (isLive && finalConfidence < AppConstants.confidenceThreshold) continue;
 
+      // YOLO outputs are in normalized coordinates (0-1) relative to input size
+      // Convert to pixel coordinates in original image
       final scaleX = originalWidth / inputSize;
       final scaleY = originalHeight / inputSize;
 
       final left = (centerX - width / 2) * scaleX;
-      final top = (centerY - height / 2) * scaleY;
+      final top = (centerY - height / 2) * scaleY; 
       final right = (centerX + width / 2) * scaleX;
       final bottom = (centerY + height / 2) * scaleY;
+      
+      print('YOLO coords: centerX=$centerX, centerY=$centerY, width=$width, height=$height');
+      print('Scales: scaleX=$scaleX, scaleY=$scaleY');
+      print('Final bbox: left=$left, top=$top, right=$right, bottom=$bottom');
 
+      // Clean className from quotes at parsing time
+      final rawClassName = maxClassIndex < labels.length ? labels[maxClassIndex] : 'Unknown';
+      final cleanClassName = rawClassName.replaceAll('"', '').replaceAll("'", "").trim();
+      
       detections.add(DetectionResult(
         boundingBox: Rect.fromLTRB(left, top, right, bottom),
-        className: maxClassIndex < labels.length ? labels[maxClassIndex] : 'Unknown',
+        className: cleanClassName,
         confidence: finalConfidence,
         classIndex: maxClassIndex,
       ));
     }
 
     return _applyNMS(detections);
+  }
+
+  // Sigmoid activation function
+  static double _sigmoid(double x) {
+    return 1.0 / (1.0 + math.exp(-x));
   }
 
   static List<DetectionResult> _applyNMS(List<DetectionResult> detections) {

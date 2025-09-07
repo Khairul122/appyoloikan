@@ -61,12 +61,34 @@ class _LiveDetectionViewState extends State<LiveDetectionView> with WidgetsBindi
             color: AppColors.surface,
           ),
         ),
-        title: const Text(
-          'Live Detection',
-          style: TextStyle(
-            color: AppColors.surface,
-            fontWeight: FontWeight.w600,
-          ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.asset(
+                'lib/assets/images/logo.png',
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.set_meal,
+                    color: AppColors.surface,
+                    size: 28,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Live Detection',
+              style: TextStyle(
+                color: AppColors.surface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
         centerTitle: true,
         actions: [
