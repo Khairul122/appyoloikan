@@ -1,0 +1,79 @@
+# Flutter
+.dart_tool/
+.buildlog/
+.packages
+flutter_export_environment.sh
+ephemeral/
+coverage/
+lib/generated_plugin_registrant.dart
+generated/
+
+# Android
+android/.gradle
+android/local.properties
+android/app/generated/
+android/app/.cxx/
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+android/.git
+
+# iOS
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/ios/Flutter/App.framework
+ios/ios/Flutter/Flutter.framework
+ios/ios/Flutter/Flutter.podspec
+ios/.symlinks
+ios/Flutter/build/
+ios/Pods
+ios/Runner.xcworkspace
+ios/Runner.xcodeproj/project.xcworkspace
+ios/Runner.xcodeproj/xcshareddata
+ios/Flutter/.last_build_id
+ios/Podfile.lock
+ios/Runner.xcodeproj/xcuserdata
+ios/Runner.xcworkspace/xcuserdata
+ios/.git
+
+# Windows
+windows/Flutter/ephemeral/
+windows/flutter/ephemeral/
+windows/Podfile.lock
+
+# macOS
+**/xcuserdata/
+**/xcshareddata/
+**/.swiftpm/
+
+# Linux
+linux/flutter/ephemeral/
+
+# Web
+web/.dart_tool/
+web/build/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+*.swp
+*~
+.DS_Store
+.tern-project
+.vscode/
+
+# Build
+build/
+
+# Test
+test/**/generated_plugin_registrant.dart
+
+# misc
+*.log
+**/node_modules/
+.env
+config/
+
+# VS Code
+.vscode/
