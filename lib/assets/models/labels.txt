@@ -4,3 +4,4 @@ ikan_cakalang
 ikan_kakap_putih
 ikan_kembung
 ikan_sarden
+non_ikan
